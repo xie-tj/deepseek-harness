@@ -51,7 +51,7 @@ Every tool renders a `generic` card (`read` / `execute` / `delete`); `cordis_def
 
 ## Export shape
 
-Namespace plugin: named exports `name` / `inject` / `apply`, no default export ([docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)). It injects `tools` and `dynamicCordisRunner`.
+Namespace plugin: named exports `name` / `inject` / `apply`, no default export ([docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.md)). It injects `tools`, `systemPrompt`, `dynamicCordisRunner`, and `cordisInspect`. Its fixed Host inspect providers use shared references, so independently mounted copies of the Cordis preset contribute one process-global provider set whose last owner removes it.
 
 ## Model Experience
 

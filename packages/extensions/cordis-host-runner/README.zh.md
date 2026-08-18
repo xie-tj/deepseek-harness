@@ -8,6 +8,8 @@
 
 分两个阶段：`define` 只做登记，一切带副作用的动作都挂在一次 run 上。
 
+同一个包还提供进程全局的 `ctx.cordisInspect` 目录与 Client 查询路由。`register()` 把一个 provider id 交给单一所有者，并拒绝任何重复项。`registerShared()` 仅供同一固定 provider 定义的多个独立挂载副本使用：经过校验且完全一致的 manifest 共享第一份行为可互换的 handler，每个调用方拥有一个引用，最后一个 disposer 移除 provider。manifest 不同以及普通注册与共享注册之间的所有权冲突都会明确失败。
+
 - `define`／`undefine` 掌管一个定义的生命周期。`define` 对元数据做首尾去空白与必填校验，通过编译预检每一半的语法（不执行任何代码），铸出 `dyn-<n>`，并把该定义登记在发起调用的会话名下——它没有任何可回滚的副作用，所以无法解析的代码在拿到 id 之前就被拒绝。`undefine` 先停掉正在运行的定义，再把它忘掉。两者都不上 wire：只有模型自己的工具调用才会 define。
 - `run` 回答模型「运行某个定义」的请求，它的两种形态取决于这个包是谁的事。只有 host 半的包是本进程自己的事：host 半在 `cordis-dynamic` group fiber 之下于 vm 中求值，调用随即返回。带浏览器半的包必须由一个页面来执行，于是 `run` 变成一次可作答的往返——它 emit `cordis/request-run`、挂起，并由某个人允许或拒绝来结束。这里没有定时器；调用方的 `AbortSignal`（提问的那一轮次被取消）是唯一的另一条出路，而且它会把这次取消播报出去，让其他页面不再提供作答入口。请求发出时**并不知道**会不会有人作答——收到它的页面也可能永远不答，所以没有页面连接的部署与其他未作答请求一样挂起，最终以 `cancelled` 收场。`run` 没有 wire 面——`cordis_run` 在进程内调用它。
 - `runHostHalf`／`getClientCode` 是获得允许的页面依次走的步骤，host 半在先，因此 host 半失败会在浏览器还没动作之前短路。`runHostHalf` 在约定上是幂等的：已在运行的包只做绑定，不再求值；针对同一个定义的并发调用只求值一次，`startedHere` 指出求值的是哪一个调用方。随后 `getClientCode` 把浏览器半的源码交给这一个页面；定义已消失、没有浏览器半、或未在运行时，它会拒绝。代码从不搭乘任何播报，所以这是它到达浏览器的唯一途径。
@@ -43,7 +45,7 @@ vm 沙箱隔离全局变量，但不是安全边界：Node 全局变量不存在
 
 ## 导出形状
 
-服务包：默认导出 `DynamicCordisRunnerService`（服务键 `dynamicCordisRunner`），`./types` 则承载 `dynamicCordisRunner` remote namespace 与其消费方共享的载荷形状。`define`／`undefine` 的形状留在包内部，因为它们从不跨 wire。
+服务包：默认导出 `DynamicCordisRunnerService`（服务键 `dynamicCordisRunner`），并具名导出 `CordisInspectRegistryService`（服务键 `cordisInspect`）。`./types` 承载 `dynamicCordisRunner` remote namespace 与其消费方共享的载荷形状。`define`／`undefine` 的形状留在包内部，因为它们从不跨 wire。
 
 ## 模型体验
 

@@ -1,10 +1,56 @@
 import { Context, CordisError, FiberState, type Fiber } from '@deepseek-ai/cordis'
+import ToolRegistry from '@deepseek-ai/dsh-tools'
+import { CordisInspectRegistryService } from '@deepseek-ai/dsh-cordis-host-runner'
 import { describe, expect, it } from 'vitest'
+import { hostInspectProviders } from '../src/providers.ts'
 
 /**
  * Direct regressions for the vendored Cordis ownership substrate used by
  * tool-cordis's dynamic plugin tree and every other harness plugin.
  */
+
+describe('Cordis inspect providers', () => {
+  it('shares identical Host providers across preset-owned tool fibers until all owners dispose', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ToolRegistry)
+    const registry = new CordisInspectRegistryService(ctx)
+    const first = hostInspectProviders(ctx).map(provider => registry.registerShared(provider))
+    const second = hostInspectProviders(ctx).map(provider => registry.registerShared(provider))
+
+    expect(registry.list().filter(provider => provider.platform === 'host').map(provider => provider.id))
+      .toEqual(['Service', 'Event', 'Builtin', 'Tool'])
+
+    first.forEach((dispose) => {
+      dispose()
+      dispose()
+    })
+    expect(registry.list().filter(provider => provider.platform === 'host')).toHaveLength(4)
+    second.forEach((dispose) => { dispose() })
+    expect(registry.list().filter(provider => provider.platform === 'host')).toEqual([])
+  })
+
+  it('preserves strict conflicts and rejects a different shared manifest', async () => {
+    const ctx = new Context()
+    await ctx.plugin(ToolRegistry)
+    const registry = new CordisInspectRegistryService(ctx)
+    const provider = hostInspectProviders(ctx)[0]
+    if (provider === undefined) throw new Error('tool-cordis must define a Host inspect provider')
+
+    const disposeStrict = registry.register(provider)
+    expect(() => registry.registerShared(provider)).toThrow('already registered')
+    disposeStrict()
+
+    const disposeShared = registry.registerShared(provider)
+    expect(() => registry.register(provider)).toThrow('already registered')
+    expect(() => registry.registerShared({
+      ...provider,
+      manifest: { ...provider.manifest, description: `${provider.manifest.description} changed` },
+    })).toThrow('different shared manifest')
+    disposeShared()
+    disposeShared()
+    expect(registry.list().filter(candidate => candidate.platform === 'host')).toEqual([])
+  })
+})
 
 describe('Cordis effect ownership', () => {
   it('makes an effect visible to a reentrant owner restart and awaits setup plus cleanup', async () => {

@@ -45,6 +45,7 @@ declare module '@deepseek-ai/cordis' {
 /** Registry and cross-page router behind the two model-facing inspect tools. */
 export class CordisInspectRegistryService extends Service {
   private readonly providers = new Map<string, HostCordisInspectProviderRegistration>()
+  private readonly sharedProviderRefs = new Map<string, { registration: HostCordisInspectProviderRegistration; count: number }>()
   private readonly pending = new Map<CordisInspectRequestId, PendingClientQuery>()
   private clientManifest: readonly CordisInspectProviderManifest[] | undefined
   private nextRequest = 1
@@ -66,6 +67,51 @@ export class CordisInspectRegistryService extends Service {
     this.providers.set(manifest.id, stored)
     return () => {
       if (this.providers.get(manifest.id) === stored) this.providers.delete(manifest.id)
+    }
+  }
+
+  /**
+   * Register a process-wide provider shared by independently mounted compositions.
+   * Identical manifests share the first registration's query handler until every
+   * owner disposes its reference. Callers must make same-manifest handlers
+   * behaviorally interchangeable.
+   * @param registration - manifest and local query handler.
+   * @returns idempotent reference disposer.
+   * @throws when the id has an ordinary owner or a shared owner with a different manifest.
+   */
+  registerShared(registration: HostCordisInspectProviderRegistration): () => void {
+    const manifest = validateManifest(registration.manifest)
+    const existing = this.sharedProviderRefs.get(manifest.id)
+    if (existing !== undefined) {
+      if (!sameManifest(existing.registration.manifest, manifest)) {
+        throw new Error(`Host Cordis inspect provider "${manifest.id}" has a different shared manifest`)
+      }
+      existing.count += 1
+      let disposed = false
+      return () => {
+        if (disposed) return
+        disposed = true
+        existing.count -= 1
+        if (existing.count === 0 && this.providers.get(manifest.id) === existing.registration) {
+          this.providers.delete(manifest.id)
+          this.sharedProviderRefs.delete(manifest.id)
+        }
+      }
+    }
+    if (this.providers.has(manifest.id)) throw new Error(`Host Cordis inspect provider "${manifest.id}" is already registered`)
+    const stored = { ...registration, manifest }
+    this.providers.set(manifest.id, stored)
+    const shared = { registration: stored, count: 1 }
+    this.sharedProviderRefs.set(manifest.id, shared)
+    let disposed = false
+    return () => {
+      if (disposed) return
+      disposed = true
+      shared.count -= 1
+      if (shared.count === 0 && this.providers.get(manifest.id) === stored) {
+        this.providers.delete(manifest.id)
+        this.sharedProviderRefs.delete(manifest.id)
+      }
     }
   }
 
@@ -196,6 +242,10 @@ export class CordisInspectRegistryService extends Service {
       signal.removeEventListener('abort', onAbort)
     }
   }
+}
+
+function sameManifest(left: CordisInspectProviderManifest, right: CordisInspectProviderManifest): boolean {
+  return JSON.stringify(left) === JSON.stringify(right)
 }
 
 function view(platform: CordisInspectPlatform, manifest: CordisInspectProviderManifest): CordisInspectProviderView {

@@ -14,7 +14,7 @@ import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { resolveSessionPreset, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 import { applyChildComposition, childSessionMeta } from '@deepseek-ai/dsh-subagent'
 import { CallId } from '@deepseek-ai/dsh-llm'
-import type {} from '@deepseek-ai/dsh-compaction-basic'
+import type {} from '@deepseek-ai/dsh-cordis-host-runner'
 import type {} from '@deepseek-ai/dsh-skill'
 import type {} from '@deepseek-ai/dsh-tools'
 // Type-only: resolves `ctx.get('sessionProjections')` and `ctx.get('tokenMeter')`.
@@ -453,6 +453,76 @@ describe('the shipped Web composition', () => {
     await new Promise(resolve => setTimeout(resolve, 50))
 
     expect(await readFile(path, 'utf8')).toBe(before)
+  })
+})
+
+describe('multiple live Cordis preset generations', () => {
+  let cordisCtx: Context
+  let cordisInspect: Context['cordisInspect']
+  let userRoot: string
+
+  beforeAll(async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-cordis-generations-'))
+    userRoot = join(root, 'presets')
+    await mkdir(join(userRoot, 'cordis-copy'), { recursive: true })
+    await writeFile(
+      join(userRoot, 'cordis-copy', 'agent.cordis.yml'),
+      await readFile(join(CONFIG_DIR, 'agent-presets', 'cordis', 'agent.cordis.yml'), 'utf8'),
+    )
+    const settingsFile = join(root, 'settings.yaml')
+    await writeFile(settingsFile, '{}\n')
+    cordisCtx = await bootWeb(settingsFile, [{
+      id: 'agent-presets',
+      config: {
+        default: 'cordis',
+        roots: [
+          { path: join(CONFIG_DIR, 'agent-presets'), trust: 'system' },
+          { path: userRoot, trust: 'user' },
+        ],
+        includeUserRoot: false,
+      },
+    }])
+    cordisInspect = cordisCtx.cordisInspect
+  }, 120_000)
+
+  afterAll(async () => {
+    await cordisCtx.fiber.dispose()
+    expect(cordisInspect.list().filter(provider => provider.platform === 'host')).toEqual([])
+  })
+
+  it('mounts distinct Cordis generations without duplicating Host providers', async () => {
+    const [first, copied] = await Promise.all([
+      cordisCtx.agents.create({
+        sessionId: SessionId('cordis-generation-first'),
+        setup: agentCtx => cordisCtx.agentPresets.mount(agentCtx, 'cordis').then(() => undefined),
+      }),
+      cordisCtx.agents.create({
+        sessionId: SessionId('cordis-generation-copy'),
+        setup: agentCtx => cordisCtx.agentPresets.mount(agentCtx, 'cordis-copy').then(() => undefined),
+      }),
+    ])
+    try {
+      expect(toolNames(cordisCtx, first.agent)).toEqual(expect.arrayContaining([
+        'cordis_inspect_list', 'cordis_inspect_query', 'cordis_inspect_self',
+        'cordis_define', 'cordis_run', 'cordis_stop', 'cordis_undefine',
+      ]))
+      expect(toolNames(cordisCtx, copied.agent)).toEqual(expect.arrayContaining([
+        'cordis_inspect_list', 'cordis_inspect_query', 'cordis_inspect_self',
+        'cordis_define', 'cordis_run', 'cordis_stop', 'cordis_undefine',
+      ]))
+
+      expect(cordisCtx.agentPresets.composedPreset(first.agent.ctx)).toBe('cordis')
+      expect(cordisCtx.agentPresets.composedPreset(copied.agent.ctx)).toBe('cordis-copy')
+      expect(cordisCtx.cordisInspect.list().filter(provider => provider.platform === 'host').map(provider => provider.id))
+        .toEqual(['Service', 'Event', 'Builtin', 'Tool'])
+
+      await first.dispose()
+      expect(toolNames(cordisCtx, copied.agent)).toEqual(expect.arrayContaining(['cordis_define', 'cordis_inspect_list']))
+      expect(cordisCtx.cordisInspect.list().filter(provider => provider.platform === 'host')).toHaveLength(4)
+    } finally {
+      await copied.dispose()
+      await first.dispose()
+    }
   })
 })
 

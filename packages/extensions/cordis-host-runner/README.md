@@ -8,6 +8,8 @@ The host half of model-mounted dynamic packages: the definition registry, the `n
 
 Two phases: `define` only records, and everything with an effect hangs off a run.
 
+The same package provides the process-global `ctx.cordisInspect` directory and Client-query router. `register()` gives one owner a provider id and rejects every duplicate. `registerShared()` is reserved for independently mounted copies of one fixed provider definition: exact validated manifests share the first behaviorally interchangeable handler, each caller owns one reference, and the last disposer removes the provider. Different manifests and ordinary/shared ownership collisions fail loud.
+
 - `define` / `undefine` own a definition's life. `define` trims and requires the metadata, prechecks each half's syntax by compiling it (running nothing), mints `dyn-<n>`, and records the definition against the session that asked — it has no effect to roll back, so unparseable code is refused before an id exists. `undefine` stops a running definition first, then forgets it. Neither crosses the wire: only the model's own tool call defines.
 - `run` answers the model's request to run one definition, and its two shapes differ by whose business the package is. A host-only package is this process's own: the host half is evaluated in the vm under the `cordis-dynamic` group fiber and the call returns. A package with a browser half has to be carried out by a page, so `run` becomes an answerable round trip — it emits `cordis/request-run`, suspends, and is settled by a person allowing or declining it. There is no timer; the caller's `AbortSignal` (the asking turn was cancelled) is the only other way out, and it announces the cancellation so other pages stop offering an answer. Whether any page will answer is not knowable when the request is sent — a page that received it may still never answer, so a deployment with no page connected suspends like any other unanswered request and ends in `cancelled`. `run` has no wire face — `cordis_run` calls it in process.
 - `runHostHalf` / `getClientCode` are the steps an allowed page walks, host half first, so a host-half failure short-circuits before the browser has moved. `runHostHalf` is idempotent by contract: a running package is bound rather than evaluated again, concurrent calls for one definition evaluate it once, and `startedHere` names the caller that did. `getClientCode` then hands that one page the browser-half source, refusing a definition that is gone, has no browser half, or is not running. Code never rides an announcement, so this is the only way it reaches a browser.
@@ -41,7 +43,7 @@ One field is all there is: a run request waits for a person, so the round trip h
 
 ## Export shape
 
-Service package: default-exports `DynamicCordisRunnerService` (service key `dynamicCordisRunner`), with `./types` carrying the payload shapes the `dynamicCordisRunner` remote namespace and its consumers share. The `define` / `undefine` shapes stay inside the package, because they never cross the wire.
+Service package: default-exports `DynamicCordisRunnerService` (service key `dynamicCordisRunner`) and named-exports `CordisInspectRegistryService` (service key `cordisInspect`). `./types` carries the payload shapes the `dynamicCordisRunner` remote namespace and its consumers share. The `define` / `undefine` shapes stay inside the package, because they never cross the wire.
 
 ## Model Experience
 

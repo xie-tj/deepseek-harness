@@ -51,7 +51,7 @@
 
 ## 导出形式
 
-Namespace 插件：命名导出 `name`／`inject`／`apply`，无默认导出（[docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.zh.md)）。它注入 `tools` 与 `dynamicCordisRunner`。
+Namespace 插件：命名导出 `name`／`inject`／`apply`，无默认导出（[docs/postmortem/0001](../../../docs/postmortem/0001-acp-default-export-drops-inject.zh.md)）。它注入 `tools`、`systemPrompt`、`dynamicCordisRunner` 与 `cordisInspect`。其固定 Host inspect provider 使用共享引用，因此 Cordis preset 的多个独立挂载副本只贡献一组进程全局 provider，并由最后一位所有者将其移除。
 
 ## 模型体验
 

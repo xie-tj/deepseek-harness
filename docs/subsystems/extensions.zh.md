@@ -27,6 +27,17 @@ Registry and cross-page router behind the two model-facing inspect tools.
 register(registration: HostCordisInspectProviderRegistration): () => void
 
 /**
+ * Register a process-wide provider shared by independently mounted compositions.
+ * Identical manifests share the first registration's query handler until every
+ * owner disposes its reference. Callers must make same-manifest handlers
+ * behaviorally interchangeable.
+ * @param registration - manifest and local query handler.
+ * @returns idempotent reference disposer.
+ * @throws when the id has an ordinary owner or a shared owner with a different manifest.
+ */
+registerShared(registration: HostCordisInspectProviderRegistration): () => void
+
+/**
  * Replace the mirrored Client provider directory.
  * @param providers - complete Client manifest snapshot.
  */
