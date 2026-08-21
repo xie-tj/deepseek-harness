@@ -215,27 +215,50 @@ function isAborted(signal: AbortSignal): boolean {
   return signal.aborted
 }
 
+/** A direct-human replacement event hides its cited raw tail from ordinary readers. */
+function isUserRevision(
+  event: SessionEvent,
+): event is SessionEvent<'user/message'> & { surfaceOp: { op: 'replace'; start: number; end: number } } {
+  return event.type === 'user/message'
+    && typeof event.surfaceOp === 'object'
+    && event.data.source.kind === 'user'
+}
+
+/** Remove raw events shadowed by same-session user revisions from active history. */
+function currentHistoryEvents(events: readonly SessionEvent[]): SessionEvent[] {
+  const ranges: Array<{ start: number; end: number }> = []
+  for (const event of events) {
+    const sources = isUserRevision(event)
+      ? event.sourceEventSeqs
+      : event.type === 'session/revision' ? event.data.sourceEventSeqs : undefined
+    if (sources === undefined || sources.length === 0) continue
+    const start = Math.min(...sources)
+    if (start < event.seq) ranges.push({ start, end: event.seq - 1 })
+  }
+  return events.filter(event => (
+    event.type !== 'session/revision'
+    && !ranges.some(range => event.seq >= range.start && event.seq <= range.end)
+  ))
+}
+
 /**
- * Message-boundary pagination: count maxMessages append-origin messages
- * backwards from the window tail. Replacement copies never entered the
- * conversation a reader sees — they restate a shadowed range for the model
- * alone — so they consume no quota; the page stays one contiguous raw range,
- * which keeps a compaction's log-only `compaction/summary` record on the same page as its
- * replacement. The cut is the starting seq of the oldest message group (chunks
- * group via sourceEventSeqs — never cut mid-message). The tail page naturally
- * includes the in-progress partial.
+ * Message-boundary pagination over the current history projection. User revisions count as one
+ * visible user message; shadowed raw events are removed before the cut, while the append-only
+ * audit record remains in storage. The cut is the starting seq of the oldest message group
+ * (chunks group via sourceEventSeqs — never cut mid-message).
  */
 function paginate(
   events: readonly SessionEvent[],
   beforeSeq: number | undefined,
   maxMessages: number,
 ): { events: SessionEvent[]; hasMore: boolean } {
-  const window = beforeSeq === undefined ? [...events] : events.filter(event => event.seq < beforeSeq)
+  const current = currentHistoryEvents(events)
+  const window = beforeSeq === undefined ? current : current.filter(event => event.seq < beforeSeq)
   let count = 0
   let cut = 0
   for (let i = window.length - 1; i >= 0; i--) {
     const event = window[i] as SessionEvent
-    if (!MESSAGE_TYPES.has(event.type) || !isAppendSurfaceEvent(event)) continue
+    if (!MESSAGE_TYPES.has(event.type) || (!isAppendSurfaceEvent(event) && !isUserRevision(event))) continue
     count++
     const sources = (event as { sourceEventSeqs?: number[] }).sourceEventSeqs
     let groupStart = event.seq
@@ -1072,11 +1095,19 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
   const pendingApprovals = new Map<RpcId, PendingApproval>()
   const muxQueues = new Set<FrameQueue<RpcRequest<MuxFrame>>>()
   const imageAdmissionChains = new WeakMap<Agent, Promise<void>>()
+  const revisionChains = new WeakMap<Agent, Promise<void>>()
 
   /** Serialize image admission with model selection for one agent. */
   function serializeImageAdmission<T>(agent: Agent, operation: () => Promise<T>): Promise<T> {
     const result = (imageAdmissionChains.get(agent) ?? Promise.resolve()).then(operation)
     imageAdmissionChains.set(agent, result.then(() => undefined, () => undefined))
+    return result
+  }
+
+  /** Serialize revision admission so two tabs cannot both revise the same target. */
+  function serializeRevisionAdmission<T>(agent: Agent, operation: () => Promise<T>): Promise<T> {
+    const result = (revisionChains.get(agent) ?? Promise.resolve()).then(operation)
+    revisionChains.set(agent, result.then(() => undefined, () => undefined))
     return result
   }
 
@@ -2356,6 +2387,134 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
           }
         }
         return ok(request, { sessionId: childId })
+      },
+
+      async reviseLatestUser(request) {
+        const { sessionId, messageId, seq, content } = request.payload
+        const resolved = await turnAgentFor<{ accepted: true }>(request, sessionId)
+        if ('refused' in resolved) return resolved.refused
+        const agent = resolved.agent
+        return serializeRevisionAdmission(agent, async () => {
+          const unavailable = (
+            reason: 'stale' | 'not-latest' | 'running' | 'pending-work' | 'unsupported-content',
+            message: string,
+          ): RpcResponse<{ accepted: true }> => err(request, {
+            code: 'message-revision-unavailable',
+            message,
+            details: { sessionId, reason },
+          })
+          const hasPendingInteraction = (): boolean => (
+            [...pendingQuestions.values()].some(item => item.sessionId === sessionId)
+            || [...pendingApprovals.values()].some(item => item.sessionId === sessionId)
+          )
+          const validateTarget = (): RpcResponse<{ accepted: true }> | undefined => {
+            if (agent.status !== 'idle') {
+              return unavailable('running', 'message editing is unavailable while the session is running')
+            }
+            if (agent.inbox.hasPending || hasPendingInteraction()) {
+              return unavailable('pending-work', 'message editing is unavailable while the session has pending work')
+            }
+            if (content.length === 0 || content.some(part => part.type !== 'text')) {
+              return unavailable('unsupported-content', 'only text messages can be edited')
+            }
+            const nodes = agent.session.surface.nodes
+            const targetIndex = nodes.indexOf(seq)
+            if (targetIndex < 0) {
+              return unavailable('stale', 'the message changed in another window; reopen edit to try again')
+            }
+            const targetEvent = agent.session.events.find(event => event.seq === seq)
+            if (
+              targetEvent === undefined
+              || targetEvent.type !== 'user/message'
+              || targetEvent.data.id !== messageId
+              || targetEvent.data.source.kind !== 'user'
+            ) {
+              return unavailable('stale', 'the message changed in another window; reopen edit to try again')
+            }
+            if (
+              targetEvent.data.content.length === 0
+               || targetEvent.data.content.some(part => part.type !== 'text')
+               || targetEvent.data.content.every(part => part.type === 'text' && part.text.trim() === '')
+            ) {
+              return unavailable('unsupported-content', 'only non-empty text messages can be edited')
+            }
+            let latestDirectUserIndex = -1
+            for (let index = nodes.length - 1; index >= 0; index -= 1) {
+              const event = agent.session.events.find(candidate => candidate.seq === nodes[index])
+              if (event?.type === 'user/message' && event.data.source.kind === 'user') {
+                latestDirectUserIndex = index
+                break
+              }
+            }
+            if (targetIndex !== latestDirectUserIndex) {
+              return unavailable('not-latest', 'only the latest user message can be edited')
+            }
+            return undefined
+          }
+
+          const initialFailure = validateTarget()
+          if (initialFailure !== undefined) return initialFailure
+          let durable: ContentBlock[]
+          try {
+            durable = await durablePromptContent(ctx, content)
+          } catch (error: unknown) {
+            if (error instanceof AttachmentError) {
+              return unavailable('unsupported-content', error.message)
+            }
+            return unavailable('unsupported-content', `message editing was rejected: ${String(error)}`)
+          }
+          try {
+            return await agent.runMaintenance(async () => {
+              const finalFailure = validateTarget()
+              if (finalFailure !== undefined) return finalFailure
+              const nodes = agent.session.surface.nodes
+              const targetIndex = nodes.indexOf(seq)
+              const source: MessageSource = { kind: 'user', rpcId: request.rpcId }
+              const message: UserMessage = createUserMessage({
+                content: durable,
+                source,
+                surfaceOp: {
+                  op: 'replace',
+                  start: seq,
+                  end: nodes[nodes.length - 1] as number,
+                  sourceEventSeqs: [...nodes.slice(targetIndex)],
+                },
+              })
+              let queued = false
+              try {
+                agent.followup(message)
+                queued = true
+                agent.session.append('session/revision', {
+                  targetMessageId: messageId,
+                  targetSeq: seq,
+                  replacementMessageId: message.id,
+                  sourceEventSeqs: [...nodes.slice(targetIndex)],
+                })
+              } catch (error: unknown) {
+                let rollback: string | undefined
+                if (queued) {
+                  try {
+                    if (!agent.inbox.remove(message.id)) rollback = 'queued revision was not present during rollback'
+                  } catch (rollbackError: unknown) {
+                    rollback = String(rollbackError)
+                  }
+                }
+                return err(request, {
+                  code: 'agent-busy',
+                  message: 'message editing was rejected',
+                  details: { reason: String(error), ...(rollback === undefined ? {} : { rollback }) },
+                })
+              }
+              return ok(request, { accepted: true as const })
+            })
+          } catch (error: unknown) {
+            return err(request, {
+              code: 'agent-busy',
+              message: 'message editing was rejected',
+              details: { reason: String(error) },
+            })
+          }
+        })
       },
 
       async prompt(request) {

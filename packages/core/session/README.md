@@ -64,6 +64,8 @@ This package owns ordered surface projection, replacement validation, replay, an
 
 A `user/message` stores the complete `UserMessage` directly, including the identity created before inbox routing or step entry. It renders its `content` verbatim whether it is a direct human prompt, a synthetic injection, or an entered goal round; its typed `source` is the only channel that tells them apart and carries any domain-specific durable facts. `assistant/message` and `tool/result` likewise store complete message values. Turn execution remains enclosed by `turn/start` and `turn/end`; `agent.inject()` queues input until a later pre-step claims it and returns it in an enter decision.
 
+A latest direct-human revision appends a replacement `user/message` with a surface `replace` operation and a `session/revision` audit event. Current history and exports omit the cited raw range; the append-only artifact retains it, and external side effects are not rolled back.
+
 `tool/result` persists one identified user-role tool-result message, optional internal failure identity, and optional presentation metadata. A tool's successful canonical `value` and human-readable canonical failure message remain execution-local; rendered error content is the replay-authoritative message.
 
 ### Session event vocabulary (`types.ts`)

@@ -16,6 +16,14 @@
   min-width: 0;
   max-width: min(525px, 82%);
 }
+
+/* While a user-action occupant (session-message-revision) holds its inline
+   editor open it flags the actions row with [data-message-editing] and this
+   bubble yields to the editor card (row chrome hides via MessageIconActions). */
+.userRow:has([data-message-editing]) .userStack {
+  display: none;
+}
+
 .bubble {
   /* 525px cap inside the 736 column; percentage keeps narrow windows sane. */
   max-width: 100%;
@@ -33,6 +41,7 @@
   font-size: 12px;
   line-height: 18px;
 }
+
 .contextRow {
   padding: 2px 0;
 }

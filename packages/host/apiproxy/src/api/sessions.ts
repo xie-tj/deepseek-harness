@@ -342,6 +342,18 @@ export interface SessionsApi {
   Promise<RpcResponse<{ sessionId: SessionId }>>
 
   /**
+   * Replaces the latest direct-human user message and queues a new turn from that point.
+   * The Host validates the target against the current surface and uses the replacement surface
+   * operation to hide the old tail without rewriting the append-only log.
+   */
+  reviseLatestUser(request: RpcRequest<{
+    sessionId: SessionId
+    messageId: MessageId
+    seq: number
+    content: PromptContentPart[]
+  }>): Promise<RpcResponse<{ accepted: true }>>
+
+  /**
    * Sends text and temporary image bytes to an ordinary session Agent after durable host admission.
    * Browser callers attach their current IANA zone;
    * the Host validates, canonicalizes, and records it on that exact user message. Omission remains

@@ -25,6 +25,7 @@ function contribution(
   return {
     key, kind: key, id: key, target: 'trajectory', anchorSeq,
     location: { kind: 'session' },
+    visibility: 'visible',
     data,
   }
 }
@@ -77,6 +78,7 @@ describe('TrajectorySnapshotBuilder', () => {
         target: 'trajectory',
         anchorSeq: 2,
         location: { kind: 'session' },
+        visibility: 'visible',
         data: {
           kind: 'request-header',
           header: {
@@ -95,6 +97,7 @@ describe('TrajectorySnapshotBuilder', () => {
         target: 'trajectory' as const,
         anchorSeq: request.startSeq,
         location: { kind: 'session' as const },
+        visibility: 'visible' as const,
         data: { kind: 'assistant' as const, partial: null, request },
       })),
     ]

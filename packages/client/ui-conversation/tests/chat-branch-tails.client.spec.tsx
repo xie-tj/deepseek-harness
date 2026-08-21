@@ -13,13 +13,14 @@ import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts
 import type {
   ChatConversationViewNode, ConversationNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import type { PropsRenderSlots, SessionProviderComponent } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChatNodeViewProps } from '../src/client/contract/slots.ts'
 import {
   formatMessageClock, msUntilNextLocalMidnight, startOfLocalDay,
 } from '../src/client/chat/message-chrome.ts'
 import {
-  CompactionNodeView, ContextMessageNodeView, RetryNodeView, UnknownNodeView,
-  UserMessageNodeView,
+  CompactionNodeView, ContextMessageNodeView, RetryNodeView, SteeringMessageNodeView,
+  UnknownNodeView, UserMessageNodeView,
 } from '../src/client/chat/MessageItem.tsx'
 import { AssistantMarkdown, type AssistantMarkdownProps } from '../src/client/chat/AssistantMarkdown.tsx'
 import { StatsLine, type StatsLineProps } from '../src/client/chat/StatsLine.tsx'
@@ -68,11 +69,31 @@ function MessageItem({ node, t: translate, referenceLabels }: MessageItemProps) 
         ? { ...node, referenceLabels }
         : node,
   }
-  const props = { node: viewNode, t: translate, renderMessageImages } as ChatNodeViewProps
+  const snapshot = {
+    chat: { order: [viewNode.key], nodes: { get: (key: string) => key === viewNode.key ? viewNode : undefined } },
+    running: false, pending: [], queue: [], openState: 'open', removed: false,
+  }
+  const useSession = bindSnapshotSelector({ getSnapshot: () => snapshot, subscribe: () => () => {} })
+  const SessionProvider: SessionProviderComponent = ({ children }) => children('s1' as never)
+  const props = {
+    node: viewNode,
+    useSession,
+    SessionProvider,
+    openFile: () => {},
+    inspectCall: () => {},
+    forkAt: () => {},
+    loadImage: () => Promise.reject(new Error('unused')),
+    renderMessageImages,
+    renderMessageVideos: () => null,
+    renderSlot: () => null,
+    fileMentions: () => undefined,
+    t: translate,
+  } as unknown as ChatNodeViewProps
   switch (node.kind) {
     case 'user':
+      return <UserMessageNodeView {...props as unknown as ChatNodeViewProps<'user'> & PropsRenderSlots<'conversation.chat.user-actions'>} />
     case 'steering':
-      return <UserMessageNodeView {...props as ChatNodeViewProps<'user' | 'steering'>} />
+      return <SteeringMessageNodeView {...props as unknown as ChatNodeViewProps<'steering'> & PropsRenderSlots<'conversation.chat.steering-user-actions'>} />
     case 'context':
       return <ContextMessageNodeView {...props as ChatNodeViewProps<'context'>} />
     case 'compaction':
@@ -94,6 +115,7 @@ describe('MessageItem arms', () => {
         referenceLabels={['你好']}
         node={{
           kind: 'user',
+          messageId: 'fixture-user-1' as never,
           seq: 1,
           time: 1_000,
           content: [{ type: 'text', text: '@你好这个在讲啥' }] as never,
@@ -114,6 +136,7 @@ describe('MessageItem arms', () => {
         referenceLabels={['Research notes']}
         node={{
           kind: 'user',
+          messageId: 'fixture-user-1' as never,
           seq: 1,
           time: 1_000,
           content: [{ type: 'text', text: '@Research notes what changed?' }] as never,
@@ -130,6 +153,7 @@ describe('MessageItem arms', () => {
     const view = render(
       <MessageItem t={t} node={{
         kind: 'user',
+        messageId: 'fixture-user-1' as never,
         seq: 1,
         time: 1_000,
         content: [{ type: 'text', text: 'Read @Dockerfile and @src/README.md, please.' }] as never,
@@ -153,7 +177,7 @@ describe('MessageItem arms', () => {
     const time = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 14, 24).getTime()
     render(
       <MessageItem t={t} node={{
-        kind: 'user', seq: 1, time,
+        kind: 'user', messageId: 'fixture-user-1' as never, seq: 1, time,
         content: [{ type: 'text', text: 'hello bubble' }] as never,
         source: null,
       }}
@@ -179,7 +203,7 @@ describe('MessageItem arms', () => {
     })
     render(
       <MessageItem t={t} node={{
-        kind: 'user', seq: 1, time: 1_000,
+        kind: 'user', messageId: 'fixture-user-1' as never, seq: 1, time: 1_000,
         content: [{ type: 'text', text: 'fallback body' }] as never,
         source: null,
       }}
@@ -196,7 +220,7 @@ describe('MessageItem arms', () => {
     })
     render(
       <MessageItem t={t} node={{
-        kind: 'user', seq: 1, time: 1_000,
+        kind: 'user', messageId: 'fixture-user-1' as never, seq: 1, time: 1_000,
         content: [{ type: 'text', text: 'quiet' }] as never,
         source: null,
       }}
@@ -220,7 +244,7 @@ describe('MessageItem arms', () => {
     })
     render(
       <MessageItem t={t} node={{
-        kind: 'user', seq: 1, time: 1_000,
+        kind: 'user', messageId: 'fixture-user-1' as never, seq: 1, time: 1_000,
         content: [{ type: 'text', text: 'copied body' }] as never,
         source: null,
       }}
@@ -253,7 +277,7 @@ describe('MessageItem arms', () => {
     })
     const view = render(
       <MessageItem t={t} node={{
-        kind: 'user', seq: 1, time: 1_000,
+        kind: 'user', messageId: 'fixture-user-1' as never, seq: 1, time: 1_000,
         content: [{ type: 'text', text: 'copied body' }] as never,
         source: null,
       }}
@@ -270,7 +294,7 @@ describe('MessageItem arms', () => {
 
     const mounted = render(
       <MessageItem t={t} node={{
-        kind: 'user', seq: 2, time: 1_000,
+        kind: 'user', messageId: 'fixture-user-2' as never, seq: 2, time: 1_000,
         content: [{ type: 'text', text: 'copied body' }] as never,
         source: null,
       }}
@@ -995,7 +1019,7 @@ describe('useCalendarDay boundary refresh', () => {
     const time = new Date(2026, 6, 29, 14, 24).getTime()
     render(
       <MessageItem t={t} node={{
-        kind: 'user', seq: 1, time,
+        kind: 'user', messageId: 'fixture-user-1' as never, seq: 1, time,
         content: [{ type: 'text', text: 'night bubble' }] as never,
         source: null,
       }}

@@ -115,6 +115,37 @@ describe('createFixtureApi', () => {
       .resolves.toMatchObject({ result: { ok: false, error: { code: 'cancelled' } } })
   })
 
+  it('resubmits an edited latest user message as a new fixture turn', async () => {
+    const api = createFixtureApi()
+    timing().appendUser('fx-beta', 'before edit')
+    const before = await api.sessions.history(req({ sessionId: sid('fx-beta'), maxMessages: 10 }))
+    if (!before.result.ok) throw new Error('history before revision failed')
+    const target = before.result.value.events.find(event => event.event.type === 'user/message')?.event
+    if (target?.type !== 'user/message') throw new Error('fixture revision target missing')
+
+    const revised = await api.sessions.reviseLatestUser(req({
+      sessionId: sid('fx-beta'),
+      messageId: target.data.id,
+      seq: target.seq,
+      content: [{ type: 'text', text: 'after edit' }],
+    }))
+    expect(revised.result).toEqual({ ok: true, value: { accepted: true } })
+
+    const auditWindow = await api.sessions.history(req({ sessionId: sid('fx-beta'), maxMessages: 10 }))
+    if (!auditWindow.result.ok) throw new Error('history during revision failed')
+    expect(auditWindow.result.value.events.some(event => event.event.type === 'session/revision')).toBe(false)
+
+    await vi.waitFor(async () => {
+      const after = await api.sessions.history(req({ sessionId: sid('fx-beta'), maxMessages: 10 }))
+      if (!after.result.ok) throw new Error('history after revision failed')
+      expect(after.result.value.events.some(event => (
+        event.event.type === 'user/message' && event.event.data.content.some(block => block.type === 'text' && block.text === 'after edit')
+      ))).toBe(true)
+      expect(after.result.value.events.some(event => event.event.type === 'assistant/message')).toBe(true)
+    })
+    await api.sessions.cancel(req({ sessionId: sid('fx-beta') }))
+  })
+
   it('pages history backwards on message-boundary cuts with seq-contiguous stitching', async () => {
     const api = createFixtureApi()
     const tail = await api.sessions.history(req({ sessionId: sid('fx-alpha'), maxMessages: 10 }))

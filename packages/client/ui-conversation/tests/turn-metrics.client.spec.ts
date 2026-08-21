@@ -20,7 +20,8 @@ const assistant = ({ seq, turn, step, timing, usage }: StepSpec): AssistantMessa
 })
 
 const user = (seq: number): UserMessageNode => ({
-  kind: 'user', seq, time: seq * 1_000, content: [{ type: 'text', text: 'hi' }] as never, source: null,
+  kind: 'user', messageId: `fixture-user-${String(seq)}` as never, seq, time: seq * 1_000,
+  content: [{ type: 'text', text: 'hi' }] as never, source: null,
 })
 
 describe('assistantStepReading', () => {

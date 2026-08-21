@@ -293,6 +293,14 @@ export const sessionPromptRequestSchema = z.object({
   clientTimeZone: z.string().optional(),
 }) as unknown as z.ZodType<RequestPayload<'session.prompt'>>
 
+/** session.reviseLatestUser request payload. */
+export const sessionReviseLatestUserRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  messageId: messageIdSchema,
+  seq: z.number().int().nonnegative(),
+  content: z.array(promptContentPartSchema),
+}) as unknown as z.ZodType<RequestPayload<'session.reviseLatestUser'>>
+
 /** session.prompt response value (the command slot appears only when the prompt dispatched a slash command). */
 export const sessionPromptValueSchema = z.object({
   accepted: z.literal(true),
@@ -301,6 +309,11 @@ export const sessionPromptValueSchema = z.object({
     text: z.string().optional(),
   }).optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.prompt'>>>
+
+/** session.reviseLatestUser response value. */
+export const sessionReviseLatestUserValueSchema = z.object({
+  accepted: z.literal(true),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.reviseLatestUser'>>>
 
 /** Opaque attachment id after string-shape validation. */
 export const attachmentIdSchema = z.string().min(1) as unknown as z.ZodType<AttachmentIdType>

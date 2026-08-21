@@ -6,7 +6,15 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 28px;
+  /* Grows with additive slot content (the inline editor is taller than the
+     icon row); a fixed height would overlap later transcript rows. */
+  min-height: 28px;
+}
+
+/* An occupant holding an inline editor open (session-message-revision flags
+   its root with [data-message-editing]) replaces the row chrome entirely. */
+.actions:has(> [data-message-editing]) > :not([data-message-editing]) {
+  display: none;
 }
 
 /* Clock before icons (user figma 388:20051) / after (assistant 43:32997). */

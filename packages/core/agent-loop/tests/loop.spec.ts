@@ -50,6 +50,35 @@ function userTexts(agent: Agent): string[] {
 }
 
 describe('agent loop', () => {
+  it('translates revision metadata into the durable surface intent', async () => {
+    const adapter = new MockAdapter([textResponse('revised')])
+    const ctx = await harness(adapter)
+    const agent = ctx.agentLoop.create(SessionId('revision-surface-intent'), { provider: 'mock', model: 'mock' })
+    const original = agent.session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'original' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    const replacement = createUserMessage({
+      content: [{ type: 'text', text: 'replacement' }],
+      source: { kind: 'user' },
+      surfaceOp: {
+        op: 'replace',
+        start: original.seq,
+        end: original.seq,
+        sourceEventSeqs: [original.seq],
+      },
+    })
+
+    agent.followup(replacement)
+    await waitForIdle(ctx, agent)
+
+    const event = agent.session.events.find(candidate => candidate.type === 'user/message' && candidate.data.id === replacement.id)
+    if (event?.type !== 'user/message') throw new Error('replacement user/message was not recorded')
+    expect(event.surfaceOp).toEqual({ op: 'replace', start: original.seq, end: original.seq })
+    expect(event.sourceEventSeqs).toEqual([original.seq])
+    expect(event.data).not.toHaveProperty('surfaceOp')
+  })
+
   it.each([0, -1, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 1])(
     'rejects invalid AgentOptions.maxTokens %s before publication',
     async (maxTokens) => {

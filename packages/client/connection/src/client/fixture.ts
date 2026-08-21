@@ -32,7 +32,7 @@ import type { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type { CommandDescriptor, CommandExecution, CommandResult } from '@deepseek-ai/dsh-commands/types'
 import { deriveEventMessage, foldSurface } from '@deepseek-ai/dsh-session/surface'
 import type {
-  ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, RpcReceipt,
+  ApiProxy, ClientRequest, ClientResponse, HistoryEntry, HostFrame, MuxFrame, PromptContentPart, RpcReceipt,
   ModelProviderGroup, ModelSelection, RpcRequest, RpcResponse, RpcResult, ServerRequest, ServerResponse, SessionSummary,
   ToolCallView, ToolEventView, ToolResultView, WorkspaceId, WorkspaceView,
 } from './api.ts'
@@ -1184,35 +1184,63 @@ function projectionFramesOf(id: SessionId, log: readonly SessionEvent[], event: 
   return []
 }
 
+/** Remove raw events hidden by a same-session user revision from active history. */
+function currentHistoryEvents(events: readonly SessionEvent[]): SessionEvent[] {
+  const ranges: Array<{ start: number; end: number }> = []
+  for (const event of events) {
+    const sources = event.type === 'user/message'
+      && typeof event.surfaceOp === 'object'
+      && event.data.source.kind === 'user'
+      ? event.sourceEventSeqs
+      : event.type === 'session/revision' ? event.data.sourceEventSeqs : undefined
+    if (sources === undefined || sources.length === 0) continue
+    const start = Math.min(...sources)
+    if (start < event.seq) ranges.push({ start, end: event.seq - 1 })
+  }
+  return events.filter(event => (
+    event.type !== 'session/revision'
+    && !ranges.some(range => event.seq >= range.start && event.seq <= range.end)
+  ))
+}
+
 /**
  * Message-boundary paging (mirrors the host's paging contract): count
- * maxMessages messages
- *  backwards from end, cut at a turn/start boundary.
- Entries carry pagination-time views
- *  (the host analogue computes viewFor per entry at page time). */
+ * maxMessages messages backwards from the current projection, cut at the
+ * oldest message group's source boundary, and retain raw log events in that
+ * projected range. Entries carry pagination-time views (the host analogue
+ * computes viewFor per entry at page time).
+ */
 function pageOf(
   log: readonly SessionEvent[],
   beforeSeq: number | undefined,
   maxMessages: number,
 ): { events: HistoryEntry[]; hasMore: boolean } {
-  const end = beforeSeq === undefined ? log.length : Math.max(0, Math.min(beforeSeq, log.length))
-  let start = 0
-  let messages = 0
-  for (let i = end - 1; i >= 0; i--) {
-    const event = log[i]
-    /* v8 ignore next -- dense-array guard: log seqs are array indexes, i stays within [0, end). */
-    if (event === undefined) break
-    if (event.type === 'user/message' || event.type === 'assistant/message') messages++
-    if (event.type === 'turn/start' && messages >= maxMessages) {
-      start = i
+  const current = currentHistoryEvents(log)
+  const window = beforeSeq === undefined ? current : current.filter(event => event.seq < beforeSeq)
+  let count = 0
+  let cut = 0
+  for (let i = window.length - 1; i >= 0; i--) {
+    const event = window[i] as SessionEvent
+    if (event.type === 'user/message' || event.type === 'assistant/message') {
+      count++
+      const sources = event.sourceEventSeqs
+      if (count >= maxMessages && sources !== undefined) {
+        let groupStart = event.seq
+        for (const source of sources) if (source < groupStart) groupStart = source
+        cut = groupStart
+        break
+      }
+    }
+    if (event.type === 'turn/start' && count >= maxMessages) {
+      cut = event.seq
       break
     }
   }
-  const events = log.slice(start, end).map((event): HistoryEntry => {
+  const events = window.filter(event => event.seq >= cut).map((event): HistoryEntry => {
     const view = viewFor(event, log)
     return view === undefined ? { event } : { event, view }
   })
-  return { events, hasMore: start > 0 }
+  return { events, hasMore: cut > 0 }
 }
 
 /** Fixture mirror of host session-scoped attachment authorization. */
@@ -2224,6 +2252,19 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
   }
   ;(globalThis as Record<string, unknown>).__fxTiming = timingHooks
 
+  /** Select the deterministic model reply for an accepted user turn. */
+  const replyFor = (id: SessionId, userText: string): string => (
+    userText === 'render markdown'
+      ? MARKDOWN_FIXTURE
+      : userText === 'report model'
+        ? (() => {
+          const selection = modelSelections.get(id)
+          return `当前模型：${selection?.provider ?? 'unknown'}/${selection?.model ?? 'unknown'}`
+            + (selection?.reasoningEffort === undefined ? '' : ` · 推理等级：${selection.reasoningEffort}`)
+        })()
+        : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`
+  )
+
   /** Prompt replay: chunk typewriter (80ms/frame) -> assistant/message finalize -> turn/end + running flip. */
   const startReply = (id: SessionId, turn: number, replyText: string): void => {
     const step = 0
@@ -2445,6 +2486,65 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         }
         return ok(request, { sessionId: child.sessionId })
       },
+      reviseLatestUser: async (request) => {
+        const missing = requireSession(request)
+        if (missing !== undefined) return missing
+        const { sessionId, messageId, seq, content } = request.payload
+        const unavailable = (reason: 'stale' | 'not-latest' | 'running' | 'pending-work' | 'unsupported-content', message: string): Promise<RpcResponse<{ accepted: true }>> => err(request, {
+          code: 'message-revision-unavailable', message, details: { sessionId, reason },
+        })
+        if (content.length === 0 || content.some(part => part.type !== 'text')) {
+          return unavailable('unsupported-content', 'only text messages can be edited')
+        }
+        const summary = summaryOf(sessionId)
+        if (summary === undefined) return unavailable('stale', 'the session was removed while editing')
+        if (summary.running) return unavailable('running', 'message editing is unavailable while the session is running')
+        const log = logOf(sessionId)
+        const nodes = foldSurface(log).nodes
+        const targetIndex = nodes.indexOf(seq)
+        const target = log.find(event => event.seq === seq)
+        if (targetIndex < 0 || target?.type !== 'user/message' || target.data.id !== messageId || target.data.source.kind !== 'user') {
+          return unavailable('stale', 'the message changed in another window; reopen edit to try again')
+        }
+        const latestUserIndex = nodes.findLastIndex(node => log.find(event => event.seq === node)?.type === 'user/message')
+        if (targetIndex !== latestUserIndex) return unavailable('not-latest', 'only the latest user message can be edited')
+        const replacement = userMessage(content.map((part: PromptContentPart) => ({
+          type: 'text' as const,
+          text: part.type === 'text' ? part.text : '',
+        })), {
+          kind: 'user', rpcId: request.rpcId,
+        })
+        const sourceEventSeqs = nodes.slice(targetIndex)
+        const surfaceOp = { op: 'replace' as const, start: seq, end: nodes.at(-1) as number }
+        summary.updatedAt = Date.now()
+        setRunning(sessionId, true)
+        append(sessionId, {
+          type: 'session/revision',
+          data: {
+            targetMessageId: messageId,
+            targetSeq: seq,
+            replacementMessageId: replacement.id,
+            sourceEventSeqs,
+          },
+        })
+        setTimeout(() => {
+          if (summaryOf(sessionId) === undefined) return
+          const turn = nextTurn.get(sessionId) ?? 0
+          nextTurn.set(sessionId, turn + 1)
+          append(sessionId, { type: 'turn/start', data: { turn } })
+          append(sessionId, { type: 'user/message', surfaceOp, sourceEventSeqs, data: replacement })
+          const selection = modelSelections.get(sessionId) ?? { provider: 'deepseek', model: 'deepseek-v4-flash' }
+          if (lastRequestContext(logOf(sessionId))?.model !== selection.model) {
+            append(sessionId, {
+              type: 'request/context',
+              data: { provider: selection.provider, model: selection.model, contextWindow: 128_000 },
+            })
+          }
+          const replacementText = content.map(part => part.type === 'text' ? part.text : '').join('')
+          startReply(sessionId, turn, replyFor(sessionId, replacementText))
+        }, 0)
+        return ok(request, { accepted: true })
+      },
       history: async (request) => {
         const log = logs.get(request.payload.sessionId) ?? []
         // Snapshot at request time, deliver after the transit delay (mirrors a real host under latency).
@@ -2549,19 +2649,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
             data: { provider: selection.provider, model: selection.model, contextWindow: 128_000 },
           })
         }
-        startReply(
-          id,
-          turn,
-          userText === 'render markdown'
-            ? MARKDOWN_FIXTURE
-            : userText === 'report model'
-              ? (() => {
-                const selection = modelSelections.get(id)
-                return `当前模型：${selection?.provider ?? 'unknown'}/${selection?.model ?? 'unknown'}`
-                  + (selection?.reasoningEffort === undefined ? '' : ` · 推理等级：${selection.reasoningEffort}`)
-              })()
-              : `回声：${userText}。这是 fixture 的流式回复，用于验证打字机增长与定稿切换。`,
-        )
+        startReply(id, turn, replyFor(id, userText))
         return ok(request, { accepted: true as const })
       },
       attachment: (request) => {
@@ -3183,6 +3271,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.selectModel': return this.api.sessions.selectModel(request)
       case 'session.rename': return this.api.sessions.rename(request)
       case 'session.fork': return this.api.sessions.fork(request)
+      case 'session.reviseLatestUser': return this.api.sessions.reviseLatestUser(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.attachment': return this.api.sessions.attachment(request)
       case 'session.updateQueue': return this.api.sessions.updateQueue(request)

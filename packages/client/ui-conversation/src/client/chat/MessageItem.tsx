@@ -5,6 +5,7 @@
 
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   ModelRetryNode, TurnErrorNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -17,14 +18,17 @@ import { MessageIconActions } from './MessageIconActions.tsx'
 import css from './MessageItem.module.css'
 
 type UserImage = Extract<UserMessageNode['content'][number], { type: 'image' }>
+type UserVideo = Extract<UserMessageNode['content'][number], { type: 'video' }>
 
 function contentParts(content: readonly unknown[]): {
   text: string
   images: { attachment: UserImage['attachment'] }[]
+  videos: { attachment: UserVideo['attachment'] }[]
   rest: unknown[]
 } {
   const texts: string[] = []
   const images: { attachment: UserImage['attachment'] }[] = []
+  const videos: { attachment: UserVideo['attachment'] }[] = []
   const rest: unknown[] = []
   for (const block of content) {
     const b = block as { type?: string; text?: string; attachment?: unknown }
@@ -32,9 +36,12 @@ function contentParts(content: readonly unknown[]): {
     else if (b.type === 'image' && b.attachment !== undefined) {
       images.push({ attachment: (b as UserImage).attachment })
     }
+    else if (b.type === 'video' && b.attachment !== undefined) {
+      videos.push({ attachment: (b as UserVideo).attachment })
+    }
     else rest.push(block)
   }
-  return { text: texts.join(''), images, rest }
+  return { text: texts.join(''), images, videos, rest }
 }
 
 function retrySeconds(milliseconds: number): number {
@@ -214,10 +221,11 @@ function projectUserText(text: string, sessionLabels: readonly string[]): ReactN
 
 /** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
-  content, renderMessageImages, actions, pending = false, referenceLabels = [], t,
+  content, renderMessageImages, renderMessageVideos, actions, pending = false, referenceLabels = [], t,
 }: {
   content: readonly unknown[]
   renderMessageImages: ChatNodeOwnerProps['renderMessageImages']
+  renderMessageVideos: ChatNodeOwnerProps['renderMessageVideos']
   /** Optional IconActions (or similar) below the bubble; receives the joined text. */
   actions?: (text: string) => ReactNode
   /** Whether this is the Host-authoritative pre-admission steering projection. */
@@ -226,13 +234,14 @@ function UserStyleBubble({
   referenceLabels?: readonly string[]
   t: ChatViewSlotProps['t']
 }): ReactNode {
-  const { text, images, rest } = contentParts(content)
+  const { text, images, videos, rest } = contentParts(content)
   const truncated = (total: number): string => t('json.truncated', { total })
   const showBubble = text !== '' || rest.length > 0
   return (
     <div className={css.userRow} data-pending-steering={pending || undefined} data-time-hover-root>
       <div className={css.userStack}>
         {renderMessageImages({ images, align: 'end' })}
+        {renderMessageVideos({ videos, align: 'end' })}
         {showBubble && <div className={css.bubble}>
           {projectUserText(text, referenceLabels)}
           {rest.map((block, i) => <JsonBlock key={i} label={t('message.extraBlock')} payload={block} truncatedLabel={truncated} />)}
@@ -254,15 +263,17 @@ function UserStyleBubble({
  * @param props - Pending message content and conversation translator.
  * @returns the pending steering bubble.
  */
-export function PendingSteeringBubble({ content, renderMessageImages, t }: {
+export function PendingSteeringBubble({ content, renderMessageImages, renderMessageVideos, t }: {
   content: readonly unknown[]
   renderMessageImages: ChatNodeOwnerProps['renderMessageImages']
+  renderMessageVideos: ChatNodeOwnerProps['renderMessageVideos']
   t: ChatViewSlotProps['t']
 }): ReactNode {
   return (
     <UserStyleBubble
       content={content}
       renderMessageImages={renderMessageImages}
+      renderMessageVideos={renderMessageVideos}
       pending
       t={t}
       actions={text => (
@@ -277,16 +288,39 @@ export function PendingSteeringBubble({ content, renderMessageImages, t }: {
   )
 }
 
-/** User and admitted-steering keyed Chat renderer. */
+/** Props of the message renderer and its additive user-action child seat. */
+type UserMessageNodeViewProps = ChatNodeViewProps<'user'>
+  & PropsRenderSlots<'conversation.chat.user-actions'>
+
+/** Direct-human user-message renderer with additive action support. */
 export const UserMessageNodeView = memo(function UserMessageNodeView({
-  node, renderMessageImages, t,
-}: ChatNodeViewProps<'user' | 'steering'>) {
+  node, renderMessageImages, renderMessageVideos, useSession, renderSlot, t,
+}: UserMessageNodeViewProps) {
   const data = node.data
+  const latestDirectUserId = useSession(snapshot => snapshot.chat.latestUserMessageId)
+  const unavailable = useSession(snapshot => (
+    snapshot.running
+    || snapshot.pending.length > 0
+    || snapshot.queue.length > 0
+    || snapshot.openState !== 'open'
+    || snapshot.removed
+  ))
+  const parts = useMemo(() => contentParts(data.content), [data.content])
+  const latestDirectHuman = latestDirectUserId === data.messageId
+  const userActions = renderSlot('conversation.chat.user-actions', {
+    messageId: data.messageId,
+    seq: data.seq,
+    text: parts.text,
+    latestDirectHuman,
+    textOnly: parts.images.length === 0 && parts.videos.length === 0 && parts.rest.length === 0 && parts.text !== '',
+    unavailable,
+  })
   return (
     <UserStyleBubble
       content={data.content}
       renderMessageImages={renderMessageImages}
       {...data.referenceLabels === undefined ? {} : { referenceLabels: data.referenceLabels }}
+      renderMessageVideos={renderMessageVideos}
       t={t}
       actions={text => (
         <MessageIconActions
@@ -294,6 +328,59 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
           time={data.time}
           clock="start"
           className={css.actions}
+          extraActions={userActions}
+          t={t}
+        />
+      )}
+    />
+  )
+})
+
+/** Props of the steering renderer and its additive user-action child seat. */
+type SteeringMessageNodeViewProps = ChatNodeViewProps<'steering'>
+  & PropsRenderSlots<'conversation.chat.steering-user-actions'>
+
+/**
+ * Render one claimed direct-human steering message with the same additive
+ * action support as a settled user message: the Host revision API accepts the
+ * latest direct-human text message in either classification.
+ */
+export const SteeringMessageNodeView = memo(function SteeringMessageNodeView({
+  node, renderMessageImages, renderMessageVideos, useSession, renderSlot, t,
+}: SteeringMessageNodeViewProps) {
+  const data = node.data
+  const latestDirectUserId = useSession(snapshot => snapshot.chat.latestUserMessageId)
+  const unavailable = useSession(snapshot => (
+    snapshot.running
+    || snapshot.pending.length > 0
+    || snapshot.queue.length > 0
+    || snapshot.openState !== 'open'
+    || snapshot.removed
+  ))
+  const parts = useMemo(() => contentParts(data.content), [data.content])
+  const latestDirectHuman = latestDirectUserId === data.messageId
+  const userActions = renderSlot('conversation.chat.steering-user-actions', {
+    messageId: data.messageId,
+    seq: data.seq,
+    text: parts.text,
+    latestDirectHuman,
+    textOnly: parts.images.length === 0 && parts.videos.length === 0 && parts.rest.length === 0 && parts.text !== '',
+    unavailable,
+  })
+  return (
+    <UserStyleBubble
+      content={data.content}
+      renderMessageImages={renderMessageImages}
+      {...data.referenceLabels === undefined ? {} : { referenceLabels: data.referenceLabels }}
+      renderMessageVideos={renderMessageVideos}
+      t={t}
+      actions={text => (
+        <MessageIconActions
+          text={text}
+          time={data.time}
+          clock="start"
+          className={css.actions}
+          extraActions={userActions}
           t={t}
         />
       )}

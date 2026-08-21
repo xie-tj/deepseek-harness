@@ -8,6 +8,7 @@ import {
   toAssistantBlocks,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { trajectoryNode } from './trajectory-definition-common.ts'
+import type { TrajectoryConversationViewNode } from './trajectory-contract.ts'
 
 /* jscpd:ignore-start -- Target-owned Definitions intentionally keep their event
  * state machines independent; see ../../../../../.agents/notes/implemented/
@@ -342,14 +343,16 @@ const trajectoryAssistantDefinition: ConversationNodeDefinition<AssistantState> 
   },
   buildViewNode: (context) => {
     const state = context.state ?? fallbackState(context)
-    if (state === undefined) return null
+    if (state === undefined) return hiddenAfterMaterialization(context)
     const node = finalNode(state, context)
     const boundary = closedBoundary(context)
     const partial: PartialAssistant | null = node === undefined && boundary === undefined && state.sawChunk
       ? { turn: state.turn, step: state.step, blocks: compactBlocks(state.blocks) }
       : null
     const request = assistantRequest(state, node, boundary)
-    if (node === undefined && partial === null && request === undefined) return null
+    if (node === undefined && partial === null && request === undefined) {
+      return hiddenAfterMaterialization(context)
+    }
     return trajectoryNode(context, state.startSeq, {
       kind: 'assistant',
       ...(node === undefined ? {} : { node }),
@@ -357,6 +360,24 @@ const trajectoryAssistantDefinition: ConversationNodeDefinition<AssistantState> 
       ...(request === undefined ? {} : { request }),
     })
   },
+}
+
+/**
+ * Withdrawal-safe return for a Context whose fold lost its source events (a
+ * user revision hides the superseded tail): once this key materialized in the
+ * target, the assembler forbids returning null, so keep the key with a hidden
+ * empty contribution the snapshot builder drops.
+ */
+function hiddenAfterMaterialization(context: ConversationNodeContext<AssistantState>): TrajectoryConversationViewNode | null {
+  if (context.current.get('trajectory') === undefined || context.current.get('trajectory') === null) {
+    return null
+  }
+  return trajectoryNode(
+    context,
+    context.state?.startSeq ?? context.start?.event.seq ?? 0,
+    { kind: 'assistant', partial: null },
+    'hidden',
+  )
 }
 
 interface TurnEndState {

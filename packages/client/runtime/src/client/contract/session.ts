@@ -44,6 +44,18 @@ export interface ISession {
     signal?: AbortSignal,
   ): Promise<RpcResult<{ accepted: true }>>
   /**
+   * Replace the latest direct-human user message and queue a new turn from that point.
+   * @param messageId - stable identity of the visible user message being edited.
+   * @param seq - event sequence used for stale-target rejection.
+   * @param content - replacement text parts; the UI currently supplies one text part.
+   * @returns acceptance, or a stale/busy/unsupported-content error.
+   */
+  reviseLatestUser(
+    messageId: MessageId,
+    seq: number,
+    content: PromptContentPart[],
+  ): Promise<RpcResult<{ accepted: true }>>
+  /**
    * Resolve one durable image referenced by this session.
    * @param attachmentId - opaque id found in the folded session log.
    * @returns the authenticated reference and decoded bytes.

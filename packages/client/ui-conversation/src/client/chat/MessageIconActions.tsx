@@ -44,8 +44,8 @@ export interface MessageIconActionsProps {
  * @returns The actions row element.
  */
 export function MessageIconActions({
-  text, time, runMs, ttftMs, tokensPerSecond, clock, onBranch, branchUnavailable = false, className,
-  extraActions, t,
+  text, time, runMs, ttftMs, tokensPerSecond, clock, onBranch,
+  branchUnavailable = false, className, extraActions, t,
 }: MessageIconActionsProps) {
   const day = useCalendarDay()
   const reasonId = useId()

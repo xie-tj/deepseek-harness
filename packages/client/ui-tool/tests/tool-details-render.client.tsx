@@ -34,6 +34,7 @@ export function toolChatSnapshot(
       get: key => byKey.get(key),
       values: () => nodes,
     },
+    latestUserMessageId: undefined,
     locations: {
       getTurn: () => empty,
       getStep: () => empty,

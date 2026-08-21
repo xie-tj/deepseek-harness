@@ -463,7 +463,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ChatSnapshot',
-    declaration: 'export interface ChatSnapshot {\n    readonly order: readonly string[];\n    readonly nodes: ChatNodeStore;\n    readonly locations: ChatLocationNodeIndex;\n    readonly timeline: ConversationTimelineSnapshot;\n    readonly legacy: LegacyConversationSlice;\n}',
+    declaration: 'export interface ChatSnapshot {\n    readonly order: readonly string[];\n    readonly nodes: ChatNodeStore;\n    readonly latestUserMessageId: MessageId | undefined;\n    readonly locations: ChatLocationNodeIndex;\n    readonly timeline: ConversationTimelineSnapshot;\n    readonly legacy: LegacyConversationSlice;\n}',
   },
   {
     name: 'ChildrenDecl',

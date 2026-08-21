@@ -82,6 +82,10 @@ export interface RpcErrorDetailsMap {
   'model-discovery-failed': { settingsNs: string; baseURL?: string }
   'title-invalid': { sessionId: SessionId }
   'fork-unavailable': { sessionId: SessionId }
+  'message-revision-unavailable': {
+    sessionId: SessionId
+    reason: 'stale' | 'not-latest' | 'running' | 'pending-work' | 'unsupported-content'
+  }
   'subagent-parent-unavailable': { parentSessionId: SessionId }
   'subagent-not-found': { parentSessionId: SessionId; childSessionId: SessionId }
   'subagent-catalog-diagnostic': {

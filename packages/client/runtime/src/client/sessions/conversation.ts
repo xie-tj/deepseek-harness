@@ -75,6 +75,8 @@ export function toAssistantBlock(block: ContentBlock): AssistantBlock {
 /** A finalized user message. */
 export interface UserMessageNode {
   kind: 'user'
+  /** Stable identity carried from the durable user/message event. */
+  messageId: MessageId
   seq: number
   /** Unix epoch ms from the source session event. */
   time: number
@@ -399,6 +401,8 @@ export interface LegacyConversationSlice {
 export interface ChatSnapshot {
   readonly order: readonly string[]
   readonly nodes: ChatNodeStore
+  /** Stable identity of the latest visible direct-human user message. */
+  readonly latestUserMessageId: MessageId | undefined
   readonly locations: ChatLocationNodeIndex
   readonly timeline: ConversationTimelineSnapshot
   readonly legacy: LegacyConversationSlice
@@ -419,6 +423,7 @@ export const EMPTY_CHAT_SNAPSHOT: ChatSnapshot = {
     get: () => undefined,
     values: () => EMPTY_LIST,
   },
+  latestUserMessageId: undefined,
   locations: {
     getTurn: () => EMPTY_LIST,
     getStep: () => EMPTY_LIST,

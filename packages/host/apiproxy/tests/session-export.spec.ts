@@ -167,6 +167,29 @@ describe('session.export download endpoint', () => {
     expect(strFromU8(files['session.jsonl'] as Uint8Array)).toBe(artifact('session-root').content)
   })
 
+  it('projects revised ranges and omits log-only revision audits', async () => {
+    const root = artifact('session-root', undefined, [
+      '{"type":"session","version":0,"id":"session-root","createdAt":1000}',
+      '{"type":"turn/start","seq":0,"time":2000,"data":{"turn":1}}',
+      '{"type":"user/message","seq":1,"time":2001,"surfaceOp":"append","data":{"id":"target","source":{"kind":"user"}}}',
+      '{"type":"assistant/message","seq":2,"time":2002,"surfaceOp":"append","data":{"message":{"content":[]}}}',
+      '{"type":"session/revision","seq":3,"time":2003,"ignorable":true,"data":{"targetMessageId":"target","targetSeq":1,"replacementMessageId":"replacement","sourceEventSeqs":[1,2]}}',
+      '{"type":"user/message","seq":4,"time":2004,"surfaceOp":{"op":"replace","start":1,"end":2},"sourceEventSeqs":[1,2],"data":{"id":"replacement","source":{"kind":"user"}}}',
+      '',
+    ].join('\n'))
+    const api = await buildApi({ 'session-root': root })
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root'),
+    )
+    const files = unzipSync(await responseBytes(response))
+    const events = strFromU8(files['session.jsonl'] as Uint8Array)
+      .split('\n')
+      .filter(Boolean)
+      .map(line => JSON.parse(line) as { seq?: number; type: string })
+    expect(events.map(event => event.type)).toEqual(['session', 'turn/start', 'user/message'])
+    expect(events.at(-1)?.seq).toBe(4)
+  })
+
   it('preflights root preparation through HEAD without streaming a body', async () => {
     const readRaw = vi.fn(async () => artifact('session-root'))
     const api = await buildApi({}, [], { readRaw })

@@ -125,7 +125,10 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     // Only the user bubble owns a footer (clock + copy; user bubbles carry no
     // branch action): the narration is not the answer yet.
     const copyButtons = page.getByRole('button', { name: 'Copy' })
+    const editButtons = page.getByRole('button', { name: 'Edit and resend' })
     await expect.poll(() => copyButtons.count(), { timeout: 10_000 }).toBe(1)
+    await expect.poll(() => editButtons.count(), { timeout: 10_000 }).toBe(1)
+    expect(await editButtons.getAttribute('aria-disabled')).toBe('true')
     expect(await page.getByRole('button', { name: 'Branch into a new conversation' }).count()).toBe(0)
     await copyButtons.first().focus()
     const running = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)
@@ -138,6 +141,8 @@ describe('web e2e: assistant IconActions wait for the turn to end', () => {
     await settled
     expect(sessionEvents.filter(e => e.type === 'turn/end').map(e => e.data.reason.kind)).toEqual(['aborted'])
     await expect.poll(() => copyButtons.count(), { timeout: 10_000 }).toBe(2)
+    await expect.poll(() => editButtons.count(), { timeout: 10_000 }).toBe(1)
+    expect(await editButtons.getAttribute('aria-disabled')).toBeNull()
     await expect.poll(() => page.locator('[data-streaming="true"]').count(), { timeout: 10_000 }).toBe(0)
     await copyButtons.last().focus()
     const settledAria = await captureStableAria(page, '[class*="centerCol"]', scaffold!.workspaceCwd)

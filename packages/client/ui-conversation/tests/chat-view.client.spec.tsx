@@ -20,6 +20,7 @@ import type {
   ChatNode, ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps, SelectionTarget, UseChatNodeTurnData,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { createChatStore } from '../src/client/stores.ts'
 import { ChatView } from '../src/client/chat/ChatView.tsx'
@@ -27,8 +28,8 @@ import { zh } from '../src/client/locales.ts'
 import { AssistantNodeView } from '../src/client/chat/AssistantNodeView.tsx'
 import { CommandNodeView, ManualCompactionNodeView } from '../src/client/chat/CommandNodeView.tsx'
 import {
-  CompactionNodeView, ContextMessageNodeView, RetryNodeView, TurnErrorNodeView,
-  TurnMaxTokensNodeView, UnknownNodeView, UserMessageNodeView,
+  CompactionNodeView, ContextMessageNodeView, RetryNodeView, SteeringMessageNodeView,
+  TurnErrorNodeView, TurnMaxTokensNodeView, UnknownNodeView, UserMessageNodeView,
 } from '../src/client/chat/MessageItem.tsx'
 import { TurnTailNodeView } from '../src/client/chat/TurnTailNodeView.tsx'
 import { formatRunDuration } from '../src/client/chat/message-chrome.ts'
@@ -87,6 +88,7 @@ function makeSource(init?: Partial<ConversationSnapshot>) {
 
 const user = (seq: number, text: string): UserMessageNode => ({
   kind: 'user',
+  messageId: `fixture-user-${String(seq)}` as never,
   seq,
   time: seq * 1000,
   content: [{ type: 'text', text }] as never,
@@ -198,8 +200,9 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     )
     switch (nodeOwner.node.kind) {
       case 'user':
+        return <UserMessageNodeView {...nodeProps<'user'>() as ChatNodeViewProps<'user'> & PropsRenderSlots<'conversation.chat.user-actions'>} />
       case 'steering':
-        return <UserMessageNodeView {...nodeProps<'user' | 'steering'>()} />
+        return <SteeringMessageNodeView {...nodeProps<'steering'>() as ChatNodeViewProps<'steering'> & PropsRenderSlots<'conversation.chat.steering-user-actions'>} />
       case 'context':
         return <ContextMessageNodeView {...nodeProps<'context'>()} />
       case 'assistant-step':
@@ -284,6 +287,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     openFile,
     loadOlder,
     loadImage: vi.fn(() => Promise.reject(new Error('not used'))),
+    loadVideo: vi.fn(() => Promise.reject(new Error('not used'))),
     inspectCall,
     chatScroll,
     forkAt,
@@ -526,7 +530,7 @@ describe('ChatView', () => {
     const h = makeHarness({
       queue: [pending],
       nodes: [{
-        kind: 'user', seq: 2, time: 2_000,
+        kind: 'user', messageId: 'fixture-user-2' as never, seq: 2, time: 2_000,
         content: pending.content, source: null,
       }],
       running: true,
