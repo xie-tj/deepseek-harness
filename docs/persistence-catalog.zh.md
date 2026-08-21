@@ -640,6 +640,30 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/core/session/src/types.ts:336`](../packages/core/session/src/types.ts)
 
+<a id="sessionrevision--log-only"></a>
+
+#### `session/revision` — log-only
+
+```ts persistence-catalog
+/**
+ * Durable audit record for a same-session latest-user revision. The replacement user/message
+ * cites the same source event sequences and carries the model-visible replacement content;
+ * this log-only record preserves the edit intent without exposing it as conversation content.
+ * @param targetMessageId - identity of the visible message being replaced.
+ * @param targetSeq - sequence of the visible message being replaced.
+ * @param replacementMessageId - identity of the queued replacement message.
+ * @param sourceEventSeqs - raw surface events shadowed by the replacement.
+ */
+'session/revision': {
+  targetMessageId: MessageId
+  targetSeq: number
+  replacementMessageId: MessageId
+  sourceEventSeqs: number[]
+}
+```
+
+来源：[`packages/core/session/src/types.ts:275`](../packages/core/session/src/types.ts)
+
 <a id="sessiontitle--log-only"></a>
 
 #### `session/title` — log-only

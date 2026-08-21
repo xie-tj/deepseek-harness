@@ -216,6 +216,10 @@
     - id: ui-attachment
       name: '@deepseek-ai/dsh-client-ui-attachment'
 
+    # Optional Edit action for the latest direct-human message.
+    - id: session-message-revision
+      name: '@deepseek-ai/dsh-session-message-revision'
+
     # Tool call tree, generic fallback, and keyed business Tool views.
     - id: ui-tool
       name: '@deepseek-ai/dsh-client-ui-tool'

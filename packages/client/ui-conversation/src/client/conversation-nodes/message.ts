@@ -42,7 +42,7 @@ export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
   kind: 'input-message',
   target: 'chat',
   match: event => event.type === 'user/message'
-    && isAppendSurfaceEvent(event)
+    && (isAppendSurfaceEvent(event) || (isReplacementSurfaceEvent(event) && event.data.source.kind === 'user'))
     && !isCompactionCheckpoint(event)
     ? { id: String(event.data.id), role: 'start' }
     : null,
@@ -72,6 +72,7 @@ export const messageDefinition: ConversationNodeDefinition<MessageNode> = {
       }
       : {
         kind: 'user',
+        messageId: event.data.id,
         seq: event.seq,
         time: event.time,
         content: event.data.content,

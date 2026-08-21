@@ -54,6 +54,13 @@ export interface TrajectoryConversationViewNode extends ConversationViewNode {
   readonly target: 'trajectory'
   readonly anchorSeq: number
   readonly location: ConversationLocation
+  /**
+   * Hidden nodes keep their Context key materialized without contributing to
+   * the snapshot — the withdrawal-safe return for Definitions whose source
+   * events leave the current projection (a user revision hides the
+   * superseded tail while the assembler forbids nulling a live key).
+   */
+  readonly visibility: 'visible' | 'hidden'
   readonly data: TrajectoryContribution
 }
 

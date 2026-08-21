@@ -1,0 +1,4 @@
+# Add the optional latest direct-human message action to a profile.
+- insert:
+    - id: session-message-revision
+      name: '@deepseek-ai/dsh-session-message-revision'

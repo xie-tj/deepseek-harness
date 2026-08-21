@@ -141,13 +141,19 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.message.images': { kind: 'single'; scope: 'session'; owner: MessageImagesOwnerProps }
     /** Optional renderer for one consecutive group of durable message videos. */
     'conversation.message.videos': { kind: 'single'; scope: 'session'; owner: MessageVideosOwnerProps }
+    /** Additive actions rendered after copy in a user-message action row. */
+    'conversation.chat.user-actions': { kind: 'list'; scope: 'session'; owner: UserActionOwnerProps }
+    /**
+     * Additive actions rendered after copy in a claimed steering-message
+     * action row — the steering twin of `conversation.chat.user-actions`,
+     * kept as a separate seat because one keyed node renderer owns each
+     * child seat and the settled user renderer owns that one. The owner
+     * passes the same {@link UserActionOwnerProps} currency.
+     */
+    'conversation.chat.steering-user-actions': { kind: 'list'; scope: 'session'; owner: UserActionOwnerProps }
     /**
      * The chat view's per-command row hole: keyed dispatch on the command
-     * name (`command/run.name`; a run-less cross-window node has none and
-     * always lands on the fallback). Declared by the chat view entry; the
-     * render site dispatches via `entryKey: name` with GenericCommandCard as
-     * the `fallback` — a slash command renders durably with zero
-     * registration, and a domain upgrades by registering one row component.
+     * name (`command/run.name`); the render site provides a generic fallback.
      */
     'conversation.chat.commandview': { kind: 'keyed'; scope: 'session'; owner: CommandRowOwnerProps }
     /**
@@ -407,6 +413,22 @@ export interface TurnTailOwnerProps {
    * view resolves relative paths against the session cwd).
    */
   openFile: (path: string) => void
+}
+
+/** Owner data for additive actions attached to one user-message row. */
+export interface UserActionOwnerProps {
+  /** Stable identity carried from the user/message event. */
+  messageId: MessageId
+  /** Raw session-event sequence of the user/message event. */
+  seq: number
+  /** Plain text blocks joined in their original order. */
+  text: string
+  /** Whether this is the latest direct human message in the current surface. */
+  latestDirectHuman: boolean
+  /** Whether the content contains only text blocks. */
+  textOnly: boolean
+  /** Whether the session currently refuses message actions. */
+  unavailable: boolean
 }
 
 /**

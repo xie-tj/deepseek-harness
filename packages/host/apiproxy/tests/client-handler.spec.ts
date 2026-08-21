@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { ApiProxy, GoalRef, HostFrame, MuxFrame, RpcMessage, RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy'
 import { InProcessApiClient, RpcId, toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
@@ -54,6 +55,7 @@ function scriptedApi(overrides: {
       }),
       rename: r => ok(r, { title: 'renamed', seq: 0 }),
       fork: r => ok(r, { sessionId: sid('s-fork') }),
+      reviseLatestUser: r => ok(r, { accepted: true as const }),
       prompt: r => ok(r, { accepted: true as const }),
       attachment: r => ok(r, {
         attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 },
@@ -217,6 +219,28 @@ describe('unary round trip', () => {
     const response = await client(api).sessions.fork({ sessionId: sid('s-parent'), atSeq: 7 })
     expect(seen?.payload).toEqual({ sessionId: 's-parent', atSeq: 7 })
     expect(response.result).toEqual({ ok: true, value: { sessionId: 's-child' } })
+  })
+
+  it('routes latest-user revision through the HTTP carrier', async () => {
+    let seen: Parameters<ApiProxy['sessions']['reviseLatestUser']>[0] | undefined
+    const api = scriptedApi({
+      sessions: {
+        reviseLatestUser: (request) => {
+          seen = request
+          return ok(request, { accepted: true as const })
+        },
+      },
+    })
+    const response = await client(api).sessions.reviseLatestUser({
+      sessionId: sid('s-revision'),
+      messageId: 'm-revision' as MessageId,
+      seq: 7,
+      content: [{ type: 'text', text: 'edited' }],
+    })
+    expect(seen?.payload).toEqual({
+      sessionId: 's-revision', messageId: 'm-revision', seq: 7, content: [{ type: 'text', text: 'edited' }],
+    })
+    expect(response.result).toEqual({ ok: true, value: { accepted: true } })
   })
 
   it('routes workspace rename, delete, and ordering through the wire', async () => {

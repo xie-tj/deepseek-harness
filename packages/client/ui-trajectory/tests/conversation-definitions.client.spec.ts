@@ -3,13 +3,13 @@ import { describe, expect, it } from 'vitest'
 import type {
   ConversationEventInput, ConversationNodeDefinition, ConversationViewDefinition,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import { ConversationNodeAssembler } from '@deepseek-ai/dsh-client-runtime/client'
+import { ConversationNodeAssembler, conversationContextKey } from '@deepseek-ai/dsh-client-runtime/client'
 import { registerTrajectoryAssistantDefinition } from '../src/client/trajectory-assistant-definition.ts'
 import { registerTrajectoryCompactionDefinitions } from '../src/client/trajectory-compaction-definition.ts'
-import type { TrajectorySnapshot } from '../src/client/trajectory-contract.ts'
+import type { TrajectorySnapshot, TrajectoryConversationViewNode } from '../src/client/trajectory-contract.ts'
 import { registerTrajectoryMessageDefinitions } from '../src/client/trajectory-message-definitions.ts'
 import { registerTrajectoryRequestHeaderDefinition } from '../src/client/trajectory-request-header-definition.ts'
-import { trajectoryViewDefinition } from '../src/client/trajectory-snapshot-builder.ts'
+import { TrajectorySnapshotBuilder, trajectoryViewDefinition } from '../src/client/trajectory-snapshot-builder.ts'
 import { registerTrajectoryToolDefinition } from '../src/client/trajectory-tool-definition.ts'
 
 const DEFINITIONS: ConversationNodeDefinition[] = []
@@ -315,5 +315,75 @@ describe('Trajectory conversation Definitions', () => {
     expect(current.requests.map(request => request.purpose === 'assistant'
       ? request.promptChange?.kind
       : undefined)).toEqual(['initial', undefined])
+  })
+
+  it('keeps a materialized assistant key hidden when its source events leave the projection', () => {
+    const definition = DEFINITIONS.find(entry => entry.kind === 'trajectory-assistant-step')
+    if (definition === undefined) throw new Error('assistant definition was not registered')
+    const key = conversationContextKey('trajectory-assistant-step', '2:1')
+    const materialized = {
+      key,
+      kind: 'trajectory-assistant-step',
+      id: '2:1',
+      target: 'trajectory',
+      anchorSeq: 5,
+      location: { kind: 'unresolved' } as const,
+      visibility: 'visible' as const,
+      data: { kind: 'assistant' as const, partial: null },
+    }
+    // A user revision removed the step's source events from the current
+    // projection after the node materialized: the assembler forbids nulling a
+    // live key, so the Definition must return the same key hidden.
+    const build = definition.buildViewNode
+    if (build === undefined) throw new Error('assistant definition has no buildViewNode')
+    const node = build({
+      key,
+      kind: 'trajectory-assistant-step',
+      id: '2:1',
+      matches: [],
+      start: undefined,
+      state: undefined,
+      current: new Map([['trajectory', materialized]]),
+    })
+    expect(node).toMatchObject({ key, visibility: 'hidden' })
+  })
+
+  it('returns null for an unmaterialized assistant Context without source events', () => {
+    const definition = DEFINITIONS.find(entry => entry.kind === 'trajectory-assistant-step')
+    if (definition === undefined) throw new Error('assistant definition was not registered')
+    const context = {
+      key: conversationContextKey('trajectory-assistant-step', '2:1'),
+      kind: 'trajectory-assistant-step',
+      id: '2:1',
+      matches: [],
+      start: undefined,
+      state: undefined,
+      current: new Map(),
+    }
+    const build = definition.buildViewNode
+    if (build === undefined) throw new Error('assistant definition has no buildViewNode')
+    expect(build(context)).toBeNull()
+  })
+
+  it('drops hidden contributions from the assembled Trajectory snapshot', () => {
+    const builder = new TrajectorySnapshotBuilder()
+    const visible: TrajectoryConversationViewNode = {
+      key: 'visible', kind: 'trajectory-assistant-step', id: '1:1', target: 'trajectory',
+      anchorSeq: 4, location: { kind: 'unresolved' }, visibility: 'visible',
+      data: {
+        kind: 'node',
+        node: {
+          kind: 'assistant', seq: 4, time: 4_000, turn: 1, step: 1,
+          blocks: [{ kind: 'text', text: 'kept' }],
+        },
+      },
+    }
+    const hidden: TrajectoryConversationViewNode = {
+      key: 'hidden', kind: 'trajectory-assistant-step', id: '2:1', target: 'trajectory',
+      anchorSeq: 8, location: { kind: 'unresolved' }, visibility: 'hidden',
+      data: { kind: 'assistant', partial: null },
+    }
+    const current = builder.replace({ nodes: [visible, hidden] })
+    expect(current.eventNodes).toEqual([expect.objectContaining({ seq: 4 })])
   })
 })

@@ -2,7 +2,7 @@ import type {
   AssistantMessageNode, ChatConversationViewNode, ChatSnapshot, ConversationNode,
   ChatLocationNodeIndex, ChatNodeStore, CompactionSummaryNode, ConversationLocationDataStore,
   ConversationTurnDataMap, LegacyConversationSlice, PartialAssistant, RunningToolCall,
-  ToolCallBlock, TurnLocation,
+  ToolCallBlock, TurnLocation, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { deriveTurnMetrics } from '../src/client/chat/turn-metrics.ts'
 
@@ -288,9 +288,18 @@ export function chatSnapshotFixture(input: {
     && previous.legacy.turnEnds === legacy.turnEnds
     ? previous.timeline
     : { turnOrder: [...turns.keys()], turns }
+  let latestUserMessageId: UserMessageNode['messageId'] | undefined
+  for (let index = order.length - 1; index >= 0; index -= 1) {
+    const node = store.get(order[index] as string)
+    if (node?.kind === 'user') {
+      latestUserMessageId = (node.data as UserMessageNode).messageId
+      break
+    }
+  }
   return {
     order,
     nodes: store,
+    latestUserMessageId,
     locations,
     timeline,
     legacy,

@@ -630,6 +630,7 @@ export class Session {
       time: Date.now(),
       data: dataSnapshot,
       ...(surfaceMetadataSnapshot as { surfaceOp?: unknown; sourceEventSeqs?: unknown }),
+      ...(type === 'session/revision' ? { ignorable: true as const } : {}),
     } as unknown as SessionEvent<T>)
     this.surfaceManager.validateNext(event as SessionEvent)
 

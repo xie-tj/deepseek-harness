@@ -9,12 +9,15 @@ import type {
  * @param context - Context that owns the contribution identity.
  * @param anchorSeq - Sequence used to order the contribution.
  * @param data - Trajectory-specific contribution payload.
+ * @param visibility - `hidden` keeps the key materialized while withdrawing
+ *   the contribution from the snapshot (assembler withdrawal contract).
  * @returns The contribution wrapped as a Trajectory view node.
  */
 export function trajectoryNode(
   context: ConversationNodeContext,
   anchorSeq: number,
   data: TrajectoryContribution,
+  visibility: 'visible' | 'hidden' = 'visible',
 ): TrajectoryConversationViewNode {
   return {
     key: context.key,
@@ -23,6 +26,7 @@ export function trajectoryNode(
     target: 'trajectory',
     anchorSeq,
     location: context.start?.location ?? { kind: 'unresolved' },
+    visibility,
     data,
   }
 }

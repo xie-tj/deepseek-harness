@@ -85,6 +85,8 @@ turn/start
 turn/end
 ```
 
+驱动器会在追加 `user/message` 前消费内部替换意图，仅在持久事件 envelope 上记录规范化的 `surfaceOp` 和 `sourceEventSeqs`。
+
 `turn/*`、`step/*`、`user/message`、`assistant/*` 和 `tool/*` 是持久会话事件；其余是分属三个事件域的实时扩展点。`agent/pre-step`、`agent/request`、`llm/stream` 和三个 `tools/*` 事件是 waterfall（瀑布式事件），其监听器必须调用 `next()` 才能委托下去；`agent/turn-stopping` 是 serial 事件，没有 `next()`。
 
 输入通过同一个 inbox 到达驱动器。有些消息会立即唤醒它；注入的上下文会留在 inbox 中，直到另一条消息将其唤醒。

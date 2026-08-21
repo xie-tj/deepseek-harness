@@ -21,6 +21,8 @@ const SNAPSHOT_DIR = fileURLToPath(new URL('./snapshots/message-actions', import
 const SEED = fileURLToPath(new URL('./snapshots/seeded-history/seed.jsonl', import.meta.url))
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
 const FORK_EXPECTED = join(SNAPSHOT_DIR, 'fork.expected.md')
+const EDIT_EXPECTED = join(SNAPSHOT_DIR, 'edit.expected.md')
+const EDIT_SUBMIT_EXPECTED = join(SNAPSHOT_DIR, 'edit-submit.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'message-actions-web-e2e'
 
@@ -122,7 +124,7 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     await branchButtons.first().focus()
     await expect.poll(() => page.getByRole('tooltip').textContent(), { timeout: 5_000 })
       .toBe('Available only on the last message of a completed turn')
-    await expect.poll(() => page.getByRole('button', { name: 'Edit' }).count(), { timeout: 5_000 }).toBe(0)
+    await expect.poll(() => page.getByRole('button', { name: 'Edit latest message' }).count(), { timeout: 5_000 }).toBe(1)
   }, 60_000)
 
   it.skipIf(MODE === 'record')('matches the conversation aria golden with IconActions and clocks', async () => {
@@ -136,6 +138,23 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
       .split(SEED_ID).join('{{seededId}}')
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
+  })
+
+  it.skipIf(MODE === 'record')('opens the latest-user editor and supports Shift+Enter plus Escape', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-message-revision-edit'))
+    const edit = page.getByRole('button', { name: 'Edit latest message' })
+    await expect.poll(() => edit.count(), { timeout: 5_000 }).toBe(1)
+    await edit.click()
+    const editor = page.getByRole('textbox', { name: 'Edit latest message' })
+    await expect.poll(() => editor.count(), { timeout: 5_000 }).toBe(1)
+    await editor.fill('Edited latest prompt')
+    await editor.press('Shift+Enter')
+    expect(await editor.inputValue()).toBe('Edited latest prompt\n')
+    const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
+      .split(SEED_ID).join('{{seededId}}')
+    await compareOrRefreshGolden(EDIT_EXPECTED, snapshot, MODE)
+    await editor.press('Escape')
+    await expect.poll(() => editor.count(), { timeout: 5_000 }).toBe(0)
   })
 
   it.skipIf(MODE === 'record')('forks through the settled-message and session-row actions', async () => {
@@ -192,9 +211,38 @@ describe('web e2e: message IconActions and clocks on settled history', () => {
     await compareOrRefreshGolden(FORK_EXPECTED, tree, MODE)
   })
 
-  it.skipIf(MODE === 'record')('issued zero model calls and kept a closed inventory', async () => {
+  // Runs after the fork scenario on purpose: admission hides the settled
+  // assistant tail the fork actions branch from, and it lands on the selected
+  // fork child (same inherited transcript), so both scenarios stay deterministic.
+  it.skipIf(MODE === 'record')('submits the revision with Enter and replaces the active transcript', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-message-revision-submit'))
+    const edit = page.getByRole('button', { name: 'Edit latest message' })
+    await expect.poll(() => edit.count(), { timeout: 5_000 }).toBe(1)
+    await edit.click()
+    const editor = page.getByRole('textbox', { name: 'Edit latest message' })
+    await expect.poll(() => editor.count(), { timeout: 5_000 }).toBe(1)
+    await editor.fill('Edited latest prompt')
+    await editor.press('Enter')
+    // Admission closes the editor and queues the replacement turn; the
+    // route-only adapter then fails loud because this scenario declares no
+    // replay fixture, so the revised transcript settles deterministically.
+    await expect.poll(() => editor.count(), { timeout: 5_000 }).toBe(0)
+    await expect.poll(
+      () => page.getByText('Now give the final answer.', { exact: true }).count(),
+      { timeout: 20_000 },
+    ).toBe(0)
+    await expect.poll(
+      () => page.getByText('Edited latest prompt', { exact: true }).count(),
+      { timeout: 10_000 },
+    ).toBe(1)
+    const snapshot = (await captureStableAria(page, '[class*="centerCol"]', scaffold.workspaceCwd))
+      .split(SEED_ID).join('{{seededId}}')
+    await compareOrRefreshGolden(EDIT_SUBMIT_EXPECTED, snapshot, MODE)
+  })
+
+  it.skipIf(MODE === 'record')('kept a closed fixture inventory', async () => {
     expect(tripwire.pageErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
-    await assertFixtureInventory(SNAPSHOT_DIR, ['fork.expected.md', 'ui.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['edit-submit.expected.md', 'edit.expected.md', 'fork.expected.md', 'ui.expected.md'])
   })
 })

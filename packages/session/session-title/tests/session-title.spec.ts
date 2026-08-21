@@ -139,6 +139,80 @@ describe('SessionTitleService', () => {
     expect(session.events.filter(event => event.type === 'session/title')).toHaveLength(1)
   })
 
+  it('does not regenerate a title for a replacement user message', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionTitleService, CONFIG)
+    const session = ctx.sessions.create(SessionId('replacement-title'))
+    session.append('turn/start', { turn: 1 })
+    const original = session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'original prompt' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    await settleTitles()
+    const title = ctx.sessionTitle.get(session)
+    expect(title?.title).toBe('original prompt')
+
+    session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'edited prompt' }],
+      source: { kind: 'user' },
+    }), {
+      surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
+      sourceEventSeqs: [original.seq],
+    })
+    await settleTitles()
+
+    expect(ctx.sessionTitle.get(session)).toEqual(title)
+    expect(session.events.filter(event => event.type === 'session/title')).toHaveLength(1)
+  })
+
+  it('cancels in-flight title generation when a replacement user message arrives', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionTitleService, CONFIG)
+    const session = ctx.sessions.create(SessionId('inflight-revision'))
+    session.append('turn/start', { turn: 1 })
+    const original = session.append('user/message', createUserMessage({
+      content: [{ type: 'text', text: 'original prompt' }],
+      source: { kind: 'user' },
+    }), { surfaceOp: 'append' })
+    await settleTitles()
+    expect(ctx.sessionTitle.get(session)?.title).toBe('original prompt')
+
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    const dispose = ctx.sessionTitle.register({
+      id: SessionTitleProviderId('hanging'),
+      automatic: 'all-prompts',
+      generate: async ({ signal }) => {
+        await gate
+        signal.throwIfAborted()
+        return { title: 'stale generated title', messageSeqs: [original.seq] }
+      },
+    })
+    try {
+      const run = ctx.sessionTitle.refresh(session)
+      await settleTitles()
+      session.append('user/message', createUserMessage({
+        content: [{ type: 'text', text: 'edited prompt' }],
+        source: { kind: 'user' },
+      }), {
+        surfaceOp: { op: 'replace', start: original.seq, end: original.seq },
+        sourceEventSeqs: [original.seq],
+      })
+      await settleTitles()
+      release()
+      await expect(run).rejects.toThrow()
+      await settleTitles()
+
+      // The preserved fallback title survives; the stale provider result never lands.
+      expect(ctx.sessionTitle.get(session)?.title).toBe('original prompt')
+      expect(session.events.filter(event => event.type === 'session/title')).toHaveLength(1)
+    } finally {
+      await dispose()
+    }
+  })
+
   it('folds the latest title event during replay', () => {
     const seed = Session.create(SessionId('source'))
     seed.append('session/title', {

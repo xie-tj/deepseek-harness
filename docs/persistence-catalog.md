@@ -90,7 +90,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:340`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:347`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:376`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:408`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:356`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:363`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:392`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:424`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -215,7 +215,7 @@ Source: [`packages/interaction/user-approval/src/index.ts:67`](../packages/inter
 
 Types: [StreamChunk](subsystems/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:266`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:282`](../packages/core/session/src/types.ts)
 
 <a id="assistantmessage--surface"></a>
 
@@ -237,7 +237,7 @@ Source: [`packages/core/session/src/types.ts:266`](../packages/core/session/src/
 
 Types: [TokenUsage](subsystems/llm-streaming.md)
 
-Source: [`packages/core/session/src/types.ts:277`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:293`](../packages/core/session/src/types.ts)
 
 ### `command/*`
 
@@ -547,7 +547,7 @@ Source: [`packages/plan/plan-mode/src/index.ts:53`](../packages/plan/plan-mode/s
 'request/context': RequestContext
 ```
 
-Source: [`packages/core/session/src/types.ts:313`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:329`](../packages/core/session/src/types.ts)
 
 <a id="requestheader--log-only"></a>
 
@@ -561,7 +561,7 @@ Source: [`packages/core/session/src/types.ts:313`](../packages/core/session/src/
 'request/header': { header: EpochHeader; reason: RequestHeaderReason }
 ```
 
-Source: [`packages/core/session/src/types.ts:308`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:324`](../packages/core/session/src/types.ts)
 
 ### `sandbox/*`
 
@@ -636,7 +636,31 @@ Source: [`packages/schedule/schedule/src/types.ts:219`](../packages/schedule/sch
 'session/end-seed': Record<string, never>
 ```
 
-Source: [`packages/core/session/src/types.ts:336`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:352`](../packages/core/session/src/types.ts)
+
+<a id="sessionrevision--log-only"></a>
+
+#### `session/revision` — log-only
+
+```ts persistence-catalog
+/**
+ * Durable audit record for a same-session latest-user revision. The replacement user/message
+ * cites the same source event sequences and carries the model-visible replacement content;
+ * this log-only record preserves the edit intent without exposing it as conversation content.
+ * @param targetMessageId - identity of the visible message being replaced.
+ * @param targetSeq - sequence of the visible message being replaced.
+ * @param replacementMessageId - identity of the queued replacement message.
+ * @param sourceEventSeqs - raw surface events shadowed by the replacement.
+ */
+'session/revision': {
+  targetMessageId: MessageId
+  targetSeq: number
+  replacementMessageId: MessageId
+  sourceEventSeqs: number[]
+}
+```
+
+Source: [`packages/core/session/src/types.ts:275`](../packages/core/session/src/types.ts)
 
 <a id="sessiontitle--log-only"></a>
 
@@ -652,7 +676,7 @@ Source: [`packages/core/session/src/types.ts:336`](../packages/core/session/src/
 
 Types: [SessionTitleEventData](subsystems/session-title.md)
 
-Source: [`packages/session/session-title/src/index.ts:100`](../packages/session/session-title/src/index.ts)
+Source: [`packages/session/session-title/src/index.ts:103`](../packages/session/session-title/src/index.ts)
 
 <a id="sessiontitle-llm-request--log-only"></a>
 
@@ -678,7 +702,7 @@ Source: [`packages/session/session-title-llm/src/index.ts:43`](../packages/sessi
 'step/end': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:257`](../packages/core/session/src/types.ts)
 
 <a id="stepstart--log-only"></a>
 
@@ -689,7 +713,7 @@ Source: [`packages/core/session/src/types.ts:256`](../packages/core/session/src/
 'step/start': { turn: number; step: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:254`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:255`](../packages/core/session/src/types.ts)
 
 ### `subagent/*`
 
@@ -782,7 +806,7 @@ Source: [`packages/experimental/agent-team/src/types.ts:208`](../packages/experi
 
 Types: [TodoItem](subsystems/session.md)
 
-Source: [`packages/core/session/src/types.ts:303`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:319`](../packages/core/session/src/types.ts)
 
 ### `tool/*`
 
@@ -801,7 +825,7 @@ Source: [`packages/core/session/src/types.ts:303`](../packages/core/session/src/
 
 Types: [CallId](subsystems/core.md)
 
-Source: [`packages/core/session/src/types.ts:283`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:299`](../packages/core/session/src/types.ts)
 
 <a id="toolcode-dispatch--log-only"></a>
 
@@ -876,7 +900,7 @@ Source: [`packages/core/tools/src/types.ts:40`](../packages/core/tools/src/types
 }
 ```
 
-Source: [`packages/core/session/src/types.ts:295`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:311`](../packages/core/session/src/types.ts)
 
 ### `tool-workflow/*`
 
@@ -956,7 +980,7 @@ Source: [`packages/workflow/tool-workflow/src/types.ts:47`](../packages/workflow
 
 Types: [TurnEndReason](subsystems/session.md)
 
-Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:253`](../packages/core/session/src/types.ts)
 
 <a id="turnstart--log-only"></a>
 
@@ -972,7 +996,7 @@ Source: [`packages/core/session/src/types.ts:252`](../packages/core/session/src/
 'turn/start': { turn: number }
 ```
 
-Source: [`packages/core/session/src/types.ts:243`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:244`](../packages/core/session/src/types.ts)
 
 ### `user/*`
 
@@ -991,7 +1015,7 @@ Source: [`packages/core/session/src/types.ts:243`](../packages/core/session/src/
 'user/message': UserMessage
 ```
 
-Source: [`packages/core/session/src/types.ts:264`](../packages/core/session/src/types.ts)
+Source: [`packages/core/session/src/types.ts:265`](../packages/core/session/src/types.ts)
 
 ### `web/*`
 

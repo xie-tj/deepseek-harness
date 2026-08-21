@@ -137,9 +137,23 @@ export interface Message {
   readonly source: MessageSource
 }
 
+/** Surface placement requested when a queued user message is admitted. */
+export interface UserMessageSurfaceOp {
+  /** Replace the current surface tail beginning at `start` through `end`. */
+  readonly op: 'replace'
+  /** Surface-event sequence of the first node to shadow. */
+  readonly start: number
+  /** Surface-event sequence of the last node to shadow. */
+  readonly end: number
+  /** Raw event sequences cited by the replacement event. */
+  readonly sourceEventSeqs: number[]
+}
+
 /** A user-role specialization of the one shared message representation. */
 export interface UserMessage extends Message {
   readonly role: 'user'
+  /** Internal admission metadata consumed before the durable user event is written. */
+  readonly surfaceOp?: UserMessageSurfaceOp
 }
 
 /** A model-produced assistant specialization of the shared message representation. */

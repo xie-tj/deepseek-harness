@@ -5,6 +5,7 @@
 
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import type { PropsRenderSlots } from '@deepseek-ai/dsh-client-ui-slots'
 import type {
   ModelRetryNode, TurnErrorNode, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -287,11 +288,33 @@ export function PendingSteeringBubble({ content, renderMessageImages, renderMess
   )
 }
 
-/** User and admitted-steering keyed Chat renderer. */
+/** Props of the message renderer and its additive user-action child seat. */
+type UserMessageNodeViewProps = ChatNodeViewProps<'user'>
+  & PropsRenderSlots<'conversation.chat.user-actions'>
+
+/** Direct-human user-message renderer with additive action support. */
 export const UserMessageNodeView = memo(function UserMessageNodeView({
-  node, renderMessageImages, renderMessageVideos, t,
-}: ChatNodeViewProps<'user' | 'steering'> & { renderMessageVideos: ChatNodeOwnerProps['renderMessageVideos'] }) {
+  node, renderMessageImages, renderMessageVideos, useSession, renderSlot, t,
+}: UserMessageNodeViewProps) {
   const data = node.data
+  const latestDirectUserId = useSession(snapshot => snapshot.chat.latestUserMessageId)
+  const unavailable = useSession(snapshot => (
+    snapshot.running
+    || snapshot.pending.length > 0
+    || snapshot.queue.length > 0
+    || snapshot.openState !== 'open'
+    || snapshot.removed
+  ))
+  const parts = useMemo(() => contentParts(data.content), [data.content])
+  const latestDirectHuman = latestDirectUserId === data.messageId
+  const userActions = renderSlot('conversation.chat.user-actions', {
+    messageId: data.messageId,
+    seq: data.seq,
+    text: parts.text,
+    latestDirectHuman,
+    textOnly: parts.images.length === 0 && parts.videos.length === 0 && parts.rest.length === 0 && parts.text !== '',
+    unavailable,
+  })
   return (
     <UserStyleBubble
       content={data.content}
@@ -305,6 +328,59 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
           time={data.time}
           clock="start"
           className={css.actions}
+          extraActions={userActions}
+          t={t}
+        />
+      )}
+    />
+  )
+})
+
+/** Props of the steering renderer and its additive user-action child seat. */
+type SteeringMessageNodeViewProps = ChatNodeViewProps<'steering'>
+  & PropsRenderSlots<'conversation.chat.steering-user-actions'>
+
+/**
+ * Render one claimed direct-human steering message with the same additive
+ * action support as a settled user message: the Host revision API accepts the
+ * latest direct-human text message in either classification.
+ */
+export const SteeringMessageNodeView = memo(function SteeringMessageNodeView({
+  node, renderMessageImages, renderMessageVideos, useSession, renderSlot, t,
+}: SteeringMessageNodeViewProps) {
+  const data = node.data
+  const latestDirectUserId = useSession(snapshot => snapshot.chat.latestUserMessageId)
+  const unavailable = useSession(snapshot => (
+    snapshot.running
+    || snapshot.pending.length > 0
+    || snapshot.queue.length > 0
+    || snapshot.openState !== 'open'
+    || snapshot.removed
+  ))
+  const parts = useMemo(() => contentParts(data.content), [data.content])
+  const latestDirectHuman = latestDirectUserId === data.messageId
+  const userActions = renderSlot('conversation.chat.steering-user-actions', {
+    messageId: data.messageId,
+    seq: data.seq,
+    text: parts.text,
+    latestDirectHuman,
+    textOnly: parts.images.length === 0 && parts.videos.length === 0 && parts.rest.length === 0 && parts.text !== '',
+    unavailable,
+  })
+  return (
+    <UserStyleBubble
+      content={data.content}
+      renderMessageImages={renderMessageImages}
+      {...data.referenceLabels === undefined ? {} : { referenceLabels: data.referenceLabels }}
+      renderMessageVideos={renderMessageVideos}
+      t={t}
+      actions={text => (
+        <MessageIconActions
+          text={text}
+          time={data.time}
+          clock="start"
+          className={css.actions}
+          extraActions={userActions}
           t={t}
         />
       )}

@@ -9,6 +9,9 @@ import { z as zod } from 'zod'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import { assertNever, deepFreeze, isAgentLoopRequest } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions } from '@deepseek-ai/dsh-llm'
+import {
+  isReplacementSurfaceEvent,
+} from '@deepseek-ai/dsh-session'
 import type {
   Session,
   SessionEvent,
@@ -463,6 +466,15 @@ export class SessionTitleService extends Service {
   private onUserMessage(session: Session, event: Extract<SessionEvent, { type: 'user/message' }>): void {
     if (!this.serviceActive()) return
     if (event.data.source.kind !== 'user' || collectSessionTitleMessages([event]).length === 0) return
+    // A replacement folds the conversation without opening a new prompt: cancel
+    // any generation derived from the superseded tail, but schedule nothing new.
+    if (isReplacementSurfaceEvent(event)) {
+      const state = this.work.get(session)
+      if (state !== undefined && (state.active !== undefined || state.pending !== undefined)) {
+        this.supersede(state, 'message revision superseded title generation')
+      }
+      return
+    }
     // A user rename pins the title: no automatic revision may override it.
     if (this.get(session)?.source.kind === 'user') return
     const registration = this.registration

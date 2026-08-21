@@ -1,0 +1,118 @@
+/* Latest-user-message action and its inline editor. The editor mirrors the
+   user bubble (same fill, radius, width cap, and text metrics) so an open
+   editor reads as the bubble turning into an input; while it is open the
+   owner hides the settled bubble through the [data-message-editing] hook
+   (ui-conversation MessageItem.module.css). */
+
+.root {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 6px;
+  border: none;
+  border-radius: 28px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+}
+
+.action:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.action[data-unavailable] {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.editor {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* Same column as the user bubble (MessageItem.module.css .userStack). */
+  width: min(525px, 82vw);
+  padding: 10px 16px 10px;
+  border-radius: 22px;
+  background: var(--dsw-specific-bubble);
+  text-align: left;
+}
+
+.input {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 48px;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  resize: vertical;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.input:disabled {
+  opacity: 0.6;
+}
+
+.editorActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.send,
+.cancel {
+  height: 30px;
+  padding: 0 14px;
+  border: none;
+  border-radius: 15px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.send {
+  background: var(--dsw-alias-interactive-bg-primary);
+  color: var(--dsw-alias-label-inverse);
+}
+
+.cancel {
+  background: var(--dsw-alias-bg-primary);
+  color: var(--dsw-alias-label-secondary);
+}
+
+.cancel:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.send:disabled,
+.cancel:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.notice,
+.error {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.notice {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error {
+  color: var(--dsw-alias-label-error);
+}

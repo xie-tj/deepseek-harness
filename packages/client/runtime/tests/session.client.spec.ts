@@ -92,6 +92,7 @@ function testViewDefinition(): ConversationViewDefinition<ChatConversationViewNo
       let current: ChatSnapshot = {
         order: EMPTY,
         nodes: store,
+        latestUserMessageId: undefined,
         locations: TEST_LOCATIONS,
         timeline: { turnOrder: EMPTY, turns: new Map() },
         legacy: testLegacy(EMPTY, { turnOrder: EMPTY, turns: new Map() }),
@@ -101,6 +102,7 @@ function testViewDefinition(): ConversationViewDefinition<ChatConversationViewNo
         current = {
           order: nodes.map(node => node.key),
           nodes: store,
+          latestUserMessageId: undefined,
           locations: TEST_LOCATIONS,
           timeline,
           legacy: testLegacy(nodes, timeline),
@@ -371,6 +373,39 @@ describe('live event path', () => {
     await Promise.resolve()
     const seqs = session.getSnapshot().nodes.map(n => n.seq)
     expect(seqs).toEqual([1, 3, 7, 9]) // both turns' user/assistant, no hole, no duplicate 9
+  })
+
+  it('buffers a revision audit until the replacement history is available', async () => {
+    const { api, session } = await opened(plainTurn(0, 0, 'a', 'b'))
+    const replacement = { ...ev.user(7, 'edited'), surfaceOp: { op: 'replace', start: 1, end: 5 }, sourceEventSeqs: [1, 3, 5] } as unknown as SessionEvent
+    const replacementId = (replacement.data as { id: string }).id
+    const audit = {
+      seq: 6,
+      time: 1_700_000_000_006,
+      type: 'session/revision',
+      ignorable: true,
+      data: {
+        targetMessageId: 'target' as never,
+        targetSeq: 1,
+        replacementMessageId: replacementId as never,
+        sourceEventSeqs: [1, 3, 5],
+      },
+    } as unknown as SessionEvent
+    api.onHistory = () => histResponse([ev.turnStart(0, 0)])
+    session.handleMuxEnvelope('audit' as never, { type: 'session/event', sessionId: SID, event: audit })
+    await vi.waitFor(() => {
+      expect(api.callsOf('session.history').length).toBe(2)
+    })
+    await Promise.resolve()
+    expect(chatSeqs(session.getSnapshot())).toEqual([0])
+
+    api.onHistory = () => histResponse([ev.turnStart(0, 0), replacement])
+    session.handleMuxEnvelope('replacement' as never, { type: 'session/event', sessionId: SID, event: replacement })
+    await vi.waitFor(() => {
+      expect(api.callsOf('session.history').length).toBe(3)
+    })
+    await Promise.resolve()
+    expect(chatSeqs(session.getSnapshot())).toEqual([0, 7])
   })
 })
 

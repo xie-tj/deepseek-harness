@@ -3,7 +3,7 @@ import type {
   ChatConversationViewNode, ChatLocationNodeIndex, ChatNodeStore, ChatSnapshot,
   ConversationLocation, ConversationNode, ConversationTimelineSnapshot,
   ConversationViewBuilder, ConversationViewDefinition, LegacyConversationSlice,
-  PartialAssistant, RunningToolCall,
+  PartialAssistant, RunningToolCall, UserMessageNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { sessionRecallLabels } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ChatNode } from '../contract/chat-nodes.ts'
@@ -230,6 +230,15 @@ class ReferenceLabelProjector {
     }
     return [...byKey.values()]
   }
+}
+
+/** Find the latest visible direct-human message from an already ordered Chat list. */
+function latestUserMessageIdOf(nodes: readonly ChatConversationViewNode[]): UserMessageNode['messageId'] | undefined {
+  for (let index = nodes.length - 1; index >= 0; index -= 1) {
+    const node = nodes[index]
+    if (node?.kind === 'user') return (node.data as UserMessageNode).messageId
+  }
+  return undefined
 }
 
 interface LegacyContribution {
@@ -480,6 +489,7 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
   private readonly legacy = new LegacySliceBuilder()
   private readonly referenceLabels = new ReferenceLabelProjector()
   private order: readonly string[] = EMPTY_KEYS
+  private latestUserMessageId: UserMessageNode['messageId'] | undefined
   readonly empty: ChatSnapshot
 
   constructor() {
@@ -492,7 +502,9 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
   }): ChatSnapshot {
     const nodes = this.referenceLabels.replace(input.nodes)
     this.store.replace(nodes)
-    this.order = orderedVisible(nodes).map(node => node.key)
+    const visible = orderedVisible(nodes)
+    this.order = visible.map(node => node.key)
+    this.latestUserMessageId = latestUserMessageIdOf(visible)
     this.locations.rebuild(this.order, this.store)
     return this.snapshot(input.timeline, this.legacy.replace(nodes, input.timeline))
   }
@@ -515,8 +527,10 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
     }
     this.store.upsert(upserts)
     if (structural) {
-      const next = orderedVisible(this.store.values()).map(node => node.key)
+      const visible = orderedVisible(this.store.values())
+      const next = visible.map(node => node.key)
       this.order = sameReferences(this.order, next) ? this.order : next
+      this.latestUserMessageId = latestUserMessageIdOf(visible)
       this.locations.rebuild(this.order, this.store)
     }
     this.locations.touch(contentOnly)
@@ -530,6 +544,7 @@ export class ChatSnapshotBuilder implements ConversationViewBuilder<ChatConversa
     return {
       order: this.order,
       nodes: this.store,
+      latestUserMessageId: this.latestUserMessageId,
       locations: this.locations,
       timeline,
       legacy,

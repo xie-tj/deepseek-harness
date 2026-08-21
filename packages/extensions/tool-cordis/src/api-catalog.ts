@@ -4083,7 +4083,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SessionEventMap',
-    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n        interrupted?: true;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n    \'request/context\': RequestContext;\n    \'session/end-seed\': Record<string, never>;\n}',
+    declaration: 'export interface SessionEventMap {\n    \'turn/start\': {\n        turn: number;\n    };\n    \'turn/end\': {\n        turn: number;\n        reason: TurnEndReason;\n    };\n    \'step/start\': {\n        turn: number;\n        step: number;\n    };\n    \'step/end\': {\n        turn: number;\n        step: number;\n    };\n    \'user/message\': UserMessage;\n    \'session/revision\': {\n        targetMessageId: MessageId;\n        targetSeq: number;\n        replacementMessageId: MessageId;\n        sourceEventSeqs: number[];\n    };\n    \'assistant/chunk\': {\n        turn: number;\n        step: number;\n        chunk: StreamChunk;\n    };\n    \'assistant/message\': {\n        turn: number;\n        step: number;\n        message: AssistantMessage;\n        usage?: TokenUsage;\n        interrupted?: true;\n    };\n    \'tool/call\': {\n        turn: number;\n        step: number;\n        callId: CallId;\n        name: string;\n        arguments: string;\n    };\n    \'tool/result\': {\n        turn: number;\n        step: number;\n        message: ToolResultMessage;\n        error?: {\n            name: string;\n            code: string;\n        };\n        meta?: JsonValue;\n    };\n    \'todo/write\': {\n        todos: TodoItem[];\n    };\n    \'request/header\': {\n        header: EpochHeader;\n        reason: RequestHeaderReason;\n    };\n    \'request/context\': RequestContext;\n    \'session/end-seed\': Record<string, never>;\n}',
   },
   {
     name: 'SessionEventMetadataFilter',
@@ -4931,7 +4931,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'UserMessage',
-    declaration: 'export interface UserMessage extends Message {\n    readonly role: \'user\';\n}',
+    declaration: 'export interface UserMessage extends Message {\n    readonly role: \'user\';\n    readonly surfaceOp?: UserMessageSurfaceOp;\n}',
+  },
+  {
+    name: 'UserMessageSurfaceOp',
+    declaration: 'export interface UserMessageSurfaceOp {\n    readonly op: \'replace\';\n    readonly start: number;\n    readonly end: number;\n    readonly sourceEventSeqs: number[];\n}',
   },
   {
     name: 'UserQuestionProvider',

@@ -1,12 +1,12 @@
 /**
- * Host-side session-log download: streams one ZIP archive whose files are the
- * sessions' stored artifact text verbatim plus every referenced media object.
- * The root artifact sits under its original base name (`session.jsonl`); each
- * subagent descendant under `subagents/<id>/<filename>`; each image referenced
- * by any included log under `media/<attachmentId>.<ext>` (content-addressed,
- * so one archive never duplicates a shared image). No manifest is written —
- * every file is byte-identical to the backend's durable artifact or attachment
- * store and self-describing through its own header line or media type. Before
+ * Host-side session-log download: streams one ZIP archive whose session files
+ * contain the current projected JSONL plus every media object referenced by that
+ * projection. The root artifact sits under its original base name
+ * (`session.jsonl`); each subagent descendant under `subagents/<id>/<filename>`;
+ * each image under `media/<attachmentId>.<ext>` (content-addressed, so one
+ * archive never duplicates a shared image). No manifest is written. The raw
+ * append-only artifact remains the persistence record; user revisions remove
+ * shadowed history from the exported projection. Before
  * each live session's artifact read, the SessionStore flush barrier makes the
  * current in-memory log durable; cold sessions need no barrier. Request abort
  * and response-consumer cancellation share one producer signal and terminate
@@ -157,9 +157,9 @@ function collectEventImageRefs(event: unknown, refs: Map<string, ImageAttachment
 }
 
 /**
- * Collect the distinct media references one stored artifact text names.
- * Lines that fail to parse cannot reference media and are skipped (the
- * artifact text itself is exported verbatim regardless).
+ * Collect the distinct media references one projected artifact text names.
+ * Lines that fail to parse cannot reference media and are skipped; the export
+ * projector retains such lines in the session file.
  * @param content - the stored artifact text.
  * @returns the dedupe map keyed by attachment id.
  */
@@ -176,6 +176,57 @@ function imageRefsInArtifact(content: string): Map<string, ImageAttachmentRef> {
     collectEventImageRefs(event, refs)
   }
   return refs
+}
+
+/** Project one JSONL artifact to current user-visible history. */
+function currentArtifactContent(content: string): string {
+  const lines = content.split('\n')
+  const ranges: Array<{ start: number; end: number }> = []
+  for (const line of lines) {
+    if (line === '') continue
+    let event: unknown
+    try {
+      event = JSON.parse(line)
+    } catch {
+      continue
+    }
+    if (typeof event !== 'object' || event === null) continue
+    const value = event as {
+      seq?: unknown
+      type?: unknown
+      surfaceOp?: unknown
+      sourceEventSeqs?: unknown
+      data?: { source?: { kind?: unknown }; sourceEventSeqs?: unknown }
+    }
+    if (typeof value.seq !== 'number') continue
+    const sources = value.type === 'session/revision'
+      ? value.data?.sourceEventSeqs
+      : value.type === 'user/message'
+        && typeof value.surfaceOp === 'object'
+        && value.surfaceOp !== null
+        && (value.surfaceOp as { op?: unknown }).op === 'replace'
+        && value.data?.source?.kind === 'user'
+        ? value.sourceEventSeqs
+        : undefined
+    if (!Array.isArray(sources)) continue
+    const numericSources = sources.filter((source): source is number => typeof source === 'number')
+    if (numericSources.length > 0) ranges.push({ start: Math.min(...numericSources), end: value.seq - 1 })
+  }
+  return lines.filter((line) => {
+    if (line === '') return true
+    let event: unknown
+    try {
+      event = JSON.parse(line)
+    } catch {
+      return true
+    }
+    if (typeof event !== 'object' || event === null) return true
+    const value = event as { seq?: unknown; type?: unknown }
+    if (value.type === 'session/revision') return false
+    if (typeof value.seq !== 'number') return true
+    const seq = value.seq
+    return !ranges.some(range => seq >= range.start && seq <= range.end)
+  }).join('\n')
 }
 
 /**
@@ -227,8 +278,9 @@ export async function* sessionLogZipEntries(
   const rememberMedia = (content: string): void => {
     for (const [id, ref] of imageRefsInArtifact(content)) media.set(id, ref)
   }
-  rememberMedia(root.content)
-  yield { path: root.filename, content: root.content }
+  const currentRoot = currentArtifactContent(root.content)
+  rememberMedia(currentRoot)
+  yield { path: root.filename, content: currentRoot }
   if (includeDescendants) {
     const seen = new Set<SessionId>([sessionId])
     const collect = async function* (
@@ -245,10 +297,11 @@ export async function* sessionLogZipEntries(
         if (raw === undefined) {
           throw new Error(`subagent "${id}" has no stored log artifact`)
         }
-        rememberMedia(raw.content)
+        const current = currentArtifactContent(raw.content)
+        rememberMedia(current)
         yield {
           path: `subagents/${safeSessionIdSegment(id)}/${raw.filename}`,
-          content: raw.content,
+          content: current,
         }
         yield* collect(node.descendants)
       }

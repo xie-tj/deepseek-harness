@@ -280,7 +280,13 @@ export class ReactLoopAgent implements Agent {
         phase.step = step
         try {
           for (const message of decision.messages) {
-            this.session.append('user/message', message, { surfaceOp: 'append' })
+            const { surfaceOp, ...durableMessage } = message
+            this.session.append('user/message', durableMessage, {
+              surfaceOp: surfaceOp === undefined
+                ? 'append'
+                : { op: 'replace', start: surfaceOp.start, end: surfaceOp.end },
+              ...(surfaceOp === undefined ? {} : { sourceEventSeqs: surfaceOp.sourceEventSeqs }),
+            })
           }
           // max-tokens is sticky: once any step hits the ceiling, later steps
           // that complete normally must not downgrade the turn outcome.

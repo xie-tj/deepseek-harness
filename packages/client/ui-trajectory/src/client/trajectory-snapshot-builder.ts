@@ -173,8 +173,11 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
   }
 
   private snapshot(): TrajectorySnapshot {
+    // Hidden nodes keep their key materialized (withdrawal contract) but
+    // contribute nothing to the assembled snapshot.
+    const visible = this.contributions.filter(node => node.visibility === 'visible')
     const headersByStep = new Map<string, TrajectoryRequestHeaderState>()
-    for (const contribution of this.contributions) {
+    for (const contribution of visible) {
       if (contribution.data.kind !== 'request-header') continue
       const key = headerStepKey(contribution.data.header)
       if (key !== undefined) headersByStep.set(key, contribution.data.header)
@@ -191,7 +194,7 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
     let partial: TrajectorySnapshot['partial'] = null
     const runningCalls: TrajectorySnapshot['runningCalls'][number][] = []
 
-    for (const contribution of this.contributions) {
+    for (const contribution of visible) {
       const data = contribution.data
       if (data.kind === 'request-header') {
         previousHeader = data.header
