@@ -91,21 +91,22 @@ async function mounted(config?: { trustedHosts?: string[] }): Promise<{
 }
 
 describe('connection node half', () => {
-  it('reserves enough default carrier capacity for the 200 MiB image batch', () => {
-    expect(DEFAULT_MAX_REQUEST_BODY_BYTES).toBe(300 * 1024 * 1024)
-    expect(DEFAULT_MAX_REQUEST_BODY_BYTES).toBeGreaterThan(Math.ceil(200 * 1024 * 1024 * 4 / 3) + 1024 * 1024)
+  it('reserves enough default carrier capacity for the 400 MiB message video batch', () => {
+    expect(DEFAULT_MAX_REQUEST_BODY_BYTES).toBe(600 * 1024 * 1024)
+    expect(DEFAULT_MAX_REQUEST_BODY_BYTES).toBeGreaterThan(Math.ceil(400 * 1024 * 1024 * 4 / 3) + 1024 * 1024)
   })
 
-  it('fails loud when the carrier cap cannot hold the configured image batch', () => {
+  it('fails loud when the carrier cap cannot hold the configured visual batch', () => {
     const ctx = new Context()
     const routes: WebRoute[] = []
     ctx.provide('webServer', fakeHttpServer(routes, []) as WebServer)
     ctx.provide('attachments', {
       imageLimits: { maxMessageImageBytes: 20 * 1024 * 1024 },
+      videoLimits: { maxMessageVideoBytes: 400 * 1024 * 1024 },
     } as AttachmentStore)
     ctx.provide('apiProxy', {} as ApiProxy)
     expect(() => { apply(ctx, { maxRequestBodyBytes: 1024 }) })
-      .toThrow(/must be at least .* aggregate image limit/)
+      .toThrow(/must be at least .* aggregate visual limit/)
     expect(routes).toHaveLength(0)
   })
 
