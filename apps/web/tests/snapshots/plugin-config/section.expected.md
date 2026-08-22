@@ -36,3 +36,6 @@
         - 'button "展开设置: 网页搜索"':
           - text: 网页搜索 DeepSeek 搜索提供方。
           - img
+      - listitem:
+        - 'button "展开: 用量账本"':
+          - text: 用量账本 查看已完成 API 请求的模型、token 与请求节奏。
