@@ -103,16 +103,8 @@
   opacity: 0.4;
 }
 
-.notice,
 .error {
   font-size: 12px;
   line-height: 16px;
-}
-
-.notice {
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.error {
   color: var(--dsw-alias-label-error);
 }
