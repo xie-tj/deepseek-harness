@@ -37,6 +37,7 @@ describe('latest direct-human message revision', () => {
 
     fireEvent.click(view.getByRole('button', { name: 'Edit latest message' }))
     const editor = view.getByRole('textbox', { name: 'Edit latest message' }) as HTMLTextAreaElement
+    expect(view.queryByRole('note')).toBeNull()
     expect(editor.value).toBe('original text')
     fireEvent.change(editor, { target: { value: 'edited text' } })
     fireEvent.keyDown(editor, { key: 'Enter', shiftKey: false })

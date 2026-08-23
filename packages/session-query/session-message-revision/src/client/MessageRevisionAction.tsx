@@ -91,7 +91,6 @@ export function MessageRevisionAction({
               {t('edit.send')}
             </button>
           </span>
-          <span className={css.notice} role="note">{t('edit.sideEffects')}</span>
           {error !== null && <span className={css.error} role="alert">{error}</span>}
         </span>
       )}

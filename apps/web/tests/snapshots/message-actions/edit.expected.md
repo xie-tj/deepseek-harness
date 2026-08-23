@@ -45,7 +45,6 @@
 - textbox "Edit latest message": Edited latest prompt
 - button "Cancel"
 - button "Send"
-- note: Content after the original message is hidden from the active conversation and regenerated.
 - paragraph: DONE
 - button "Copy":
   - img
