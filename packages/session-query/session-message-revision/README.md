@@ -26,7 +26,7 @@ The standard Web composition includes this row, while a profile may omit it to r
 Install the standalone bundle into a profile:
 
 ```sh
-dsh plugin --profile demo add github:xie-tj/deepseek-harness-latest-user-message-revision
+dsh plugin --profile demo add github:xie-tj/dsh-easy-exit
 ```
 
 For a local checkout, replace the GitHub reference with its directory path. Restart the Web process after changing the profile composition.

@@ -26,7 +26,7 @@
 将独立 Bundle 安装到 Profile：
 
 ```sh
-dsh plugin --profile demo add github:xie-tj/deepseek-harness-latest-user-message-revision
+dsh plugin --profile demo add github:xie-tj/dsh-easy-exit
 ```
 
 本地开发时，将 GitHub 引用替换为本地目录路径。修改 Profile 组合后重启 Web 进程。
