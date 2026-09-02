@@ -7,7 +7,7 @@
  * must stub); runtime-internal entry points (history staging, wire-frame
  * dispatch) stay on the class, invisible out here.
  */
-import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentIdType, ImageAttachmentRef, VideoAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   MessageId, PromptContentPart, QueueAction, RpcResult, SessionId,
 } from '@deepseek-ai/dsh-api-remotes/client'
@@ -34,7 +34,7 @@ export interface ISession {
   readonly projections: ProjectionsFace
   /**
    * Send a prompt into the session.
-   * @param content - text plus browser-owned temporary image uploads.
+   * @param content - text plus browser-owned temporary image or video uploads.
    * @param mode - 'queue' appends a turn; 'steer' interrupts the running one.
    * @returns acceptance, or the business error (also mirrored into snapshot.promptError).
    */
@@ -44,13 +44,27 @@ export interface ISession {
     signal?: AbortSignal,
   ): Promise<RpcResult<{ accepted: true }>>
   /**
-   * Resolve one durable image referenced by this session.
+   * Replace the latest direct-human user message and queue a new turn from that point.
+   * @param messageId - stable identity of the visible user message being edited.
+   * @param seq - event sequence used for stale-target rejection.
+   * @param content - replacement text parts; the UI currently supplies one text part.
+   * @returns acceptance, or a business error — stale/not-latest target, busy session
+   * (`agent-busy`), unsupported content, subagent conversations (`subagent-not-resumable`,
+   * `message-revision-unavailable`) — or a transport failure.
+   */
+  reviseLatestUser(
+    messageId: MessageId,
+    seq: number,
+    content: PromptContentPart[],
+  ): Promise<RpcResult<{ accepted: true }>>
+  /**
+   * Resolve one durable image or video referenced by this session.
    * @param attachmentId - opaque id found in the folded session log.
    * @returns the authenticated reference and decoded bytes.
    */
   readAttachment(
     attachmentId: AttachmentIdType,
-  ): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>>
+  ): Promise<RpcResult<{ attachment: ImageAttachmentRef | VideoAttachmentRef; data: Uint8Array }>>
   /**
    * Apply one edit, remove, or strict steer action to a still-pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.

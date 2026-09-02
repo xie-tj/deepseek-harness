@@ -1,7 +1,7 @@
 // Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentIdType, ImageAttachmentRef, VideoAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MessageId, MuxFrame, PromptContentPart, QueueAction, RpcError,
@@ -264,13 +264,53 @@ export class Session implements SessionFace {
   }
 
   /**
-   * Resolve one image referenced by this session into browser-consumable bytes.
+   * Replace the latest direct-human message and queue a new turn from its surface position.
+   * @param messageId - stable identity of the visible user message.
+   * @param seq - event sequence used by Host stale-target validation.
+   * @param content - replacement prompt parts.
+   * @returns the revision result or a transport/business error.
+   */
+  async reviseLatestUser(
+    messageId: MessageId,
+    seq: number,
+    content: PromptContentPart[],
+  ): Promise<RpcResult<{ accepted: true }>> {
+    if (this.address !== undefined) {
+      return {
+        ok: false,
+        error: this.address.mode === 'one-shot'
+          ? {
+            code: 'subagent-not-resumable',
+            message: 'one-shot subagent conversations are read-only',
+            details: { childSessionId: this.address.childSessionId },
+          }
+          : {
+            code: 'message-revision-unavailable',
+            message: 'subagent message editing is unavailable',
+            details: { sessionId: this.sessionId, reason: 'unsupported-content' },
+          },
+      }
+    }
+    try {
+      return (await this.api.sessions.reviseLatestUser({
+        sessionId: this.sessionId,
+        messageId,
+        seq,
+        content,
+      })).result
+    } catch (error) {
+      return transportError(error)
+    }
+  }
+
+  /**
+   * Resolve one image or video referenced by this session into browser-consumable bytes.
    * @param attachmentId - opaque id found in the folded session log.
    * @returns the authenticated reference and decoded bytes.
    */
   async readAttachment(
     attachmentId: AttachmentIdType,
-  ): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>> {
+  ): Promise<RpcResult<{ attachment: ImageAttachmentRef | VideoAttachmentRef; data: Uint8Array }>> {
     try {
       const result = (await this.api.sessions.attachment({
         sessionId: this.sessionId,
@@ -392,9 +432,10 @@ export class Session implements SessionFace {
         return
       }
       const tail = older[older.length - 1]
-      if (tail === undefined || tail.event.seq + 1 !== this.baseSeq) {
-        // Continuity assertion: on violation drop the page fail-soft rather than render an out-of-order stream.
-        console.error(`[web-runtime] history page discontinuous: tail seq ${tail?.event.seq} vs baseSeq ${this.baseSeq}`)
+      const revisedWindow = this.events.some(isUserRevisionEvent)
+      if (tail === undefined || tail.event.seq >= this.baseSeq || (!revisedWindow && tail.event.seq + 1 !== this.baseSeq)) {
+        // Revised projections may leave hidden raw sequence gaps; ordinary windows still require continuity.
+        console.error(`[web-runtime] history page invalid: tail seq ${tail?.event.seq} vs baseSeq ${this.baseSeq}`)
         this.hasMore = false
         this.conversation.prepend([], false)
         return
@@ -664,7 +705,10 @@ export class Session implements SessionFace {
     if (projections !== undefined) this.projections.seed(projections)
     const buffered = this.liveBuffer
     this.liveBuffer = []
-    for (const item of buffered) this.appendLive(item.event, item.view)
+    for (const item of buffered) {
+      if (item.event.type === 'session/revision') continue
+      this.appendLive(item.event, item.view)
+    }
     this.notifier.markDirty()
   }
 
@@ -682,15 +726,22 @@ export class Session implements SessionFace {
 
   /** Land a live session/event (open/repair in flight -> buffer; overlapping seq -> drop;
    *  a seq gap -> buffer + tail-page repull instead of appending a hole (a gap is an
-   *  expected reconnect-window artifact, repaired by refetch). The window stays one contiguous
-   *  raw range, which lets Conversation Definitions correlate every recorded event between its
-   *  ends and lets a compaction checkpoint resolve its cited summary event. */
+   *  expected reconnect-window artifact, repaired by refetch). Live appends keep the window
+   *  gap-free, which lets Conversation Definitions correlate every recorded event between
+   *  its ends and lets a compaction checkpoint resolve its cited summary event; a user
+   *  revision's projection may later hide raw sequences inside that window without
+   *  splitting any recorded turn. */
   private acceptLiveEvent(event: SessionEvent, view?: ToolEventView): void {
     if (this.openState === 'loading' || this.stitching) {
       this.liveBuffer.push({ event, view })
       return
     }
     if (this.openState !== 'open') return // cold/error: no window upkeep (history fully backfills on open)
+    if (isUserRevisionEvent(event)) {
+      this.liveBuffer.push({ event, view })
+      void this.repairGap()
+      return
+    }
     const tailSeq = this.windowTailSeq()
     if (tailSeq !== null && event.seq > tailSeq + 1) {
       this.liveBuffer.push({ event, view })
@@ -781,6 +832,14 @@ export class Session implements SessionFace {
       ? this.api.sessions.history({ sessionId: this.sessionId, ...payload })
       : this.api.subagents.history({ ...this.address, ...payload })
   }
+}
+
+/** Identify a user revision event that requires a full current-history rebuild. */
+function isUserRevisionEvent(event: SessionEvent): boolean {
+  return event.type === 'session/revision'
+    || (event.type === 'user/message'
+      && typeof event.surfaceOp === 'object'
+      && event.data.source.kind === 'user')
 }
 
 /** Convert one wire history row into the assembler's transport-neutral input. */

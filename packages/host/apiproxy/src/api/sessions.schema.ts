@@ -15,7 +15,13 @@ import type {
   ModelReasoningEffort, ModelSelection, SessionListMetadata, SessionProjectionsBlock, SessionSearchItem, SessionSummary,
 } from './sessions.ts'
 import type { ToolEventView } from './events.ts'
-import type { AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type {
+  AttachmentIdType,
+  ImageAttachmentLimits,
+  ImageAttachmentRef,
+  VideoAttachmentLimits,
+  VideoAttachmentRef,
+} from '@deepseek-ai/dsh-attachment'
 import type { WorkspaceId } from './workspace.ts'
 import {
   SESSION_SEARCH_RESULT_LIMIT,
@@ -235,6 +241,14 @@ export const imageLimitsProjectionSchema = z.object({
   mediaTypes: z.array(z.string()),
 }) as unknown as z.ZodType<ImageAttachmentLimits>
 
+/** Video intake projection schema; JSON widens readonly media types to string[]. */
+export const videoLimitsProjectionSchema = z.object({
+  maxVideoBytes: z.number().int().nonnegative(),
+  maxVideosPerMessage: z.number().int().nonnegative(),
+  maxMessageVideoBytes: z.number().int().nonnegative(),
+  mediaTypes: z.array(z.string()),
+}) as unknown as z.ZodType<VideoAttachmentLimits>
+
 /** session.history response value (projections rides the tail page only). */
 export const sessionHistoryValueSchema: z.ZodType<Wire<ResponseValue<'session.history'>>> = z.object({
   events: z.array(historyEntrySchema),
@@ -271,7 +285,7 @@ export const sessionSelectModelValueSchema = z.object({
 /** ContentBlock passthrough: core is merge-extensible — the type discriminant envelope is strict, the rest stays wide. */
 export const contentBlockSchema = z.looseObject({ type: z.string() })
 
-/** Raster image media types accepted by the version-one browser wire. */
+/** Raster image media types accepted by the browser wire. */
 export const imageMediaTypeSchema = z.union([
   z.literal('image/png'),
   z.literal('image/jpeg'),
@@ -279,10 +293,18 @@ export const imageMediaTypeSchema = z.union([
   z.literal('image/gif'),
 ])
 
+/** Native video media types accepted by the browser wire. */
+export const videoMediaTypeSchema = z.union([
+  z.literal('video/mp4'),
+  z.literal('video/webm'),
+  z.literal('video/quicktime'),
+])
+
 /** Prompt wire content is intentionally narrower than merge-extensible durable core content. */
 export const promptContentPartSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text'), text: z.string() }),
   z.object({ type: z.literal('image'), mediaType: imageMediaTypeSchema, data: z.string(), name: z.string().optional() }),
+  z.object({ type: z.literal('video'), mediaType: videoMediaTypeSchema, data: z.string(), name: z.string().optional() }),
 ])
 
 /** session.prompt request payload, including optional browser-local request provenance. */
@@ -293,6 +315,14 @@ export const sessionPromptRequestSchema = z.object({
   clientTimeZone: z.string().optional(),
 }) as unknown as z.ZodType<RequestPayload<'session.prompt'>>
 
+/** session.reviseLatestUser request payload. */
+export const sessionReviseLatestUserRequestSchema = z.object({
+  sessionId: sessionIdSchema,
+  messageId: messageIdSchema,
+  seq: z.number().int().nonnegative(),
+  content: z.array(promptContentPartSchema),
+}) as unknown as z.ZodType<RequestPayload<'session.reviseLatestUser'>>
+
 /** session.prompt response value (the command slot appears only when the prompt dispatched a slash command). */
 export const sessionPromptValueSchema = z.object({
   accepted: z.literal(true),
@@ -301,6 +331,11 @@ export const sessionPromptValueSchema = z.object({
     text: z.string().optional(),
   }).optional(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.prompt'>>>
+
+/** session.reviseLatestUser response value. */
+export const sessionReviseLatestUserValueSchema = z.object({
+  accepted: z.literal(true),
+}) satisfies z.ZodType<Wire<ResponseValue<'session.reviseLatestUser'>>>
 
 /** Opaque attachment id after string-shape validation. */
 export const attachmentIdSchema = z.string().min(1) as unknown as z.ZodType<AttachmentIdType>
@@ -315,6 +350,14 @@ export const imageAttachmentRefSchema = z.object({
   name: z.string().optional(),
 }) as unknown as z.ZodType<ImageAttachmentRef>
 
+/** Durable video reference returned from the authenticated session lookup. */
+export const videoAttachmentRefSchema = z.object({
+  attachmentId: attachmentIdSchema,
+  mediaType: videoMediaTypeSchema,
+  bytes: z.number().int().positive(),
+  name: z.string().optional(),
+}) as unknown as z.ZodType<VideoAttachmentRef>
+
 /** session.attachment request payload. */
 export const sessionAttachmentRequestSchema = z.object({
   sessionId: sessionIdSchema,
@@ -323,7 +366,7 @@ export const sessionAttachmentRequestSchema = z.object({
 
 /** session.attachment response value. */
 export const sessionAttachmentValueSchema = z.object({
-  attachment: imageAttachmentRefSchema,
+  attachment: z.union([imageAttachmentRefSchema, videoAttachmentRefSchema]),
   data: z.string(),
 }) satisfies z.ZodType<Wire<ResponseValue<'session.attachment'>>>
 

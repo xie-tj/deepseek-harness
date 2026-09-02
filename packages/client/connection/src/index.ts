@@ -26,19 +26,21 @@ export { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
 /** Stable Cordis plugin name. */
 export const name = 'client-connection'
 
-/** Headroom for RPC JSON fields around aggregate base64 image payloads. */
+/** Headroom for RPC JSON fields around aggregate base64 visual payloads. */
 const REQUEST_ENVELOPE_HEADROOM_BYTES = 1024 * 1024
 
-function assertImageBodyCapacity(ctx: Context, maxRequestBodyBytes: number): void {
+function assertVisualBodyCapacity(ctx: Context, maxRequestBodyBytes: number): void {
   const attachments = ctx.get('attachments')
   if (attachments === undefined) return
-  const requiredImageBodyBytes = Math.ceil(
-    attachments.imageLimits.maxMessageImageBytes * 4 / 3,
-  ) + REQUEST_ENVELOPE_HEADROOM_BYTES
-  if (maxRequestBodyBytes < requiredImageBodyBytes) {
+  const largestVisualBytes = Math.max(
+    attachments.imageLimits.maxMessageImageBytes,
+    attachments.videoLimits.maxMessageVideoBytes,
+  )
+  const requiredBodyBytes = Math.ceil(largestVisualBytes * 4 / 3) + REQUEST_ENVELOPE_HEADROOM_BYTES
+  if (maxRequestBodyBytes < requiredBodyBytes) {
     throw new Error(
       `client-connection maxRequestBodyBytes (${String(maxRequestBodyBytes)}) must be at least `
-      + `${String(requiredImageBodyBytes)} for the configured aggregate image limit`,
+      + `${String(requiredBodyBytes)} for the configured aggregate visual limit`,
     )
   }
 }
@@ -76,7 +78,9 @@ export const Config: z<ConnectionConfig> = z.object({
  * reconnaissance no anonymous caller should have. `trustedHosts` is a
  * DNS-rebinding fence, explicitly not authentication, so the whole
  * configuration plane stays loopback-same-origin until a real authentication
- * layer exists. `llm.discoverModels` belongs to that plane on both counts: it
+ * layer exists. Authorization flow discovery, its targeted event stream, and
+ * begin/cancel expose credential-record state or drive a human sign-in, so the
+ * complete authorization domain belongs to the same plane. `llm.discoverModels` belongs to that plane on both counts: it
  * carries a draft credential, and it makes the HOST issue a GET to a URL the
  * caller chose and reports back the status or the parsed body — an anonymous
  * LAN caller would have a probe for whatever the host can reach and the
@@ -115,6 +119,10 @@ const PRIVILEGED_METHODS = new Set([
   'credentials.describe',
   'credentials.set',
   'credentials.unset',
+  'authorization.list',
+  'authorization.begin',
+  'authorization.cancel',
+  'events.authorization',
   'llm.discoverModels',
 ])
 
@@ -134,7 +142,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   // Config boundary: a malformed entry fails the load loudly here rather than
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
-  if (ctx.get('apiProxy') !== undefined) assertImageBodyCapacity(ctx, maxRequestBodyBytes)
+  if (ctx.get('apiProxy') !== undefined) assertVisualBodyCapacity(ctx, maxRequestBodyBytes)
   const connection = new HostConnectionService(ctx, trustedHosts)
   const fetchHandler = connection.createSharedFetchHandler(API_PATH, {
     async fetch(request) {
@@ -172,7 +180,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   }
   ctx.effect(() => ctx.webServer.register(route), 'client-connection: /api route')
   ctx.inject(['apiProxy'], (apiCtx) => {
-    assertImageBodyCapacity(apiCtx, maxRequestBodyBytes)
+    assertVisualBodyCapacity(apiCtx, maxRequestBodyBytes)
     const downlinks = new WebSocketDownlinks(apiCtx.apiProxy)
     const registerDownlink = (
       path: string,

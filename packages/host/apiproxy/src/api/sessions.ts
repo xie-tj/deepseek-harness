@@ -5,7 +5,15 @@
  */
 
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
-import type { AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type {
+  AttachmentIdType,
+  ImageAttachmentLimits,
+  ImageAttachmentRef,
+  ImageMediaType,
+  VideoAttachmentLimits,
+  VideoAttachmentRef,
+  VideoMediaType,
+} from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 // The pure-type outlet: api/ is browser-importable, and the package root's
@@ -36,6 +44,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
      * composed — clients skip the pre-check and let the host answer.
      */
     imageLimits: ImageAttachmentLimits
+    /** Deployment-resolved video intake limits. */
+    videoLimits: VideoAttachmentLimits
   }
 }
 
@@ -91,6 +101,7 @@ export interface SessionProjectionsBlock {
 export type PromptContentPart =
   | { type: 'text'; text: string }
   | { type: 'image'; mediaType: ImageMediaType; data: string; name?: string }
+  | { type: 'video'; mediaType: VideoMediaType; data: string; name?: string }
 
 /** Complete model selection for one session. */
 export interface ModelSelection {
@@ -342,6 +353,18 @@ export interface SessionsApi {
   Promise<RpcResponse<{ sessionId: SessionId }>>
 
   /**
+   * Replaces the latest direct-human user message and queues a new turn from that point.
+   * The Host validates the target against the current surface and uses the replacement surface
+   * operation to hide the old tail without rewriting the append-only log.
+   */
+  reviseLatestUser(request: RpcRequest<{
+    sessionId: SessionId
+    messageId: MessageId
+    seq: number
+    content: PromptContentPart[]
+  }>): Promise<RpcResponse<{ accepted: true }>>
+
+  /**
    * Sends text and temporary image bytes to an ordinary session Agent after durable host admission.
    * Browser callers attach their current IANA zone;
    * the Host validates, canonicalizes, and records it on that exact user message. Omission remains
@@ -356,9 +379,9 @@ export interface SessionsApi {
   }>):
   Promise<RpcResponse<{ accepted: true; command?: { kind: 'success'; text?: string } }>>
 
-  /** Reads one durable image after proving that this session's log references its id. */
+  /** Reads one durable visual attachment after proving that this session's log references its id. */
   attachment(request: RpcRequest<{ sessionId: SessionId; attachmentId: AttachmentIdType }>):
-  Promise<RpcResponse<{ attachment: ImageAttachmentRef; data: string }>>
+  Promise<RpcResponse<{ attachment: ImageAttachmentRef | VideoAttachmentRef; data: string }>>
 
   /**
    * Edits, removes, or strictly steers one pending queued occurrence on an ordinary session.
