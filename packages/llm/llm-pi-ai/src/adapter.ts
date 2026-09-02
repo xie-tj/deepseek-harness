@@ -41,6 +41,7 @@ import type {
 import {
   attributionHeaders,
   contentHasImage,
+  contentHasVideo,
   LlmAdapter,
   LlmError,
   ReasoningEffortId,
@@ -50,6 +51,7 @@ import type {
   LlmModelInfo,
   LlmProviderInfo,
   LlmResolvedModelInfo,
+  ModelModality,
   PreparedAdapterCall,
   ReasoningEffortId as ReasoningEffortIdType,
   ResolvedRetryPolicy,
@@ -59,6 +61,8 @@ import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
+import type { PiAiVideoPayload } from './context.ts'
+import { injectVideoPayload } from './video-payload.ts'
 import { toStreamChunks } from './stream.ts'
 
 /** One resolution's frozen view: the profiles and the collection built from them. */
@@ -208,6 +212,23 @@ function requestHeaders(headers: Readonly<Record<string, string>> | undefined): 
   }
 }
 
+const GPT_56_MODEL = /^gpt-5\.6(?:-|$)/
+
+function modelInput(model: Model<Api>): ModelModality[] {
+  return [...model.input] as unknown as ModelModality[]
+}
+
+/**
+ * The GPT-5.6 deployment family exposes native video input even though the
+ * installed pi-ai catalog predates its modality. Keep the opt-in exact to the
+ * model family so unrelated routes retain their declared capabilities.
+ */
+function modelWithHarnessCapabilities(model: Model<Api>): Model<Api> {
+  const input = modelInput(model)
+  if (!GPT_56_MODEL.test(model.id) || input.includes('video')) return model
+  return { ...model, input: [...input, 'video'] as unknown as Model<Api>['input'] }
+}
+
 /**
  * pi-ai-backed multi-provider adapter. Each operation reads the current
  * profiles, so a configuration change reaches the next request without a
@@ -251,7 +272,7 @@ export class PiAiAdapter extends LlmAdapter {
     if (resolved === undefined) {
       throw new LlmError(`pi-ai provider "${provider}" has no configured model "${model}"`, 'UNKNOWN_MODEL')
     }
-    return resolved
+    return modelWithHarnessCapabilities(resolved)
   }
 
   override providerInfo(provider: string): LlmProviderInfo {
@@ -269,12 +290,15 @@ export class PiAiAdapter extends LlmAdapter {
     return Promise.resolve().then(() => {
       const snapshot = this.current()
       this.profileOf(snapshot, provider)
-      return snapshot.models.getModels(provider).map(model => ({
-        provider,
-        id: model.id,
-        name: model.name,
-        inputModalities: [...model.input],
-      }))
+      return snapshot.models.getModels(provider).map((model) => {
+        const capable = modelWithHarnessCapabilities(model)
+        return {
+          provider,
+          id: capable.id,
+          name: capable.name,
+          inputModalities: modelInput(capable),
+        }
+      })
     })
   }
 
@@ -300,7 +324,7 @@ export class PiAiAdapter extends LlmAdapter {
       provider,
       id: model,
       name: resolvedModel.name,
-      inputModalities: [...resolvedModel.input],
+      inputModalities: modelInput(resolvedModel),
       context: { contextWindow: resolvedModel.contextWindow },
       ...configuredMaxTokens === undefined ? {} : { defaultMaxTokens: configuredMaxTokens },
       ...reasoningInfo(resolvedModel, defaultLevel),
@@ -348,22 +372,32 @@ export class PiAiAdapter extends LlmAdapter {
 
     try {
       const containsImage = options.messages.some(message => contentHasImage(message.content))
-      if (containsImage && !model.input.includes('image')) {
+      const containsVideo = options.messages.some(message => contentHasVideo(message.content))
+      const input = modelInput(model)
+      if (containsImage && !input.includes('image')) {
         throw new LlmError(`pi-ai model "${model.id}" does not support image input`, 'UNSUPPORTED_CONTENT')
       }
-      const attachments = containsImage ? this.config.resolveAttachments?.() : undefined
+      if (containsVideo && !input.includes('video')) {
+        throw new LlmError(`pi-ai model "${model.id}" does not support video input`, 'UNSUPPORTED_CONTENT')
+      }
+      const attachments = containsImage || containsVideo ? this.config.resolveAttachments?.() : undefined
       if (containsImage && attachments === undefined) {
         throw new LlmError('pi-ai image input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
+      }
+      if (containsVideo && attachments === undefined) {
+        throw new LlmError('pi-ai video input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
       }
       const onReplayDegrade = (reason: string): void => {
         this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })
       }
+      const videos = new Map<string, PiAiVideoPayload>()
+      const videoSink = (payload: PiAiVideoPayload): void => { videos.set(payload.marker, payload) }
       const context = attachments === undefined
         ? toPiContext(options, undefined, onReplayDegrade)
         : await toPiContext({ ...options, signal: watchdog.signal }, attachments, onReplayDegrade, profile.maxRequestImageBytes, {
           maxPixels: profile.requestImagePixelBudget,
           maxBytes: profile.requestImageMaxBytes,
-        })
+        }, videoSink)
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },
@@ -373,6 +407,8 @@ export class PiAiAdapter extends LlmAdapter {
         // Profile headers are deployment-owned; attribution names are
         // Harness-owned and therefore win collisions.
         headers: requestHeaders(profile.headers),
+        ...videos.size === 0 ? {} : { onPayload: (payload: unknown, payloadModel: Model<Api>) =>
+          injectVideoPayload(payload, videos, payloadModel.api) },
       })
       const iterator = toStreamChunks(events, model.contextWindow)[Symbol.asyncIterator]()
       let exhausted = false

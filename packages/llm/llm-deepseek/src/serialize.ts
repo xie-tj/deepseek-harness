@@ -6,7 +6,7 @@
  * @module dsh-llm-deepseek/serialize
  */
 
-import { contentHasImage, LlmError, offloadRequestImagesWithPolicy, requestImageHandleText } from '@deepseek-ai/dsh-llm'
+import { contentHasImage, contentHasVideo, LlmError, offloadRequestImagesWithPolicy, requestImageHandleText } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type { ImageAttachmentRef, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
 import type {
@@ -106,8 +106,8 @@ function flattenText(blocks: ContentBlock[]): string {
 
 /** Reject core image content before any text-flattening path can silently erase it. */
 function assertTextOnly(blocks: readonly ContentBlock[]): void {
-  if (contentHasImage(blocks)) {
-    throw new LlmError('The DeepSeek chat-completions adapter does not support image content.', 'UNSUPPORTED_CONTENT')
+  if (contentHasImage(blocks) || contentHasVideo(blocks)) {
+    throw new LlmError('The DeepSeek chat-completions adapter does not support visual content.', 'UNSUPPORTED_CONTENT')
   }
 }
 

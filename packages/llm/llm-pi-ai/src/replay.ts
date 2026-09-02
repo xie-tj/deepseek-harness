@@ -155,7 +155,8 @@ function foreignAssistant(message: Message): AssistantMessage {
         arguments: parseArguments(block.arguments),
       }); break
       case 'image':
-        throw new LlmError('pi-ai chat history cannot represent structured assistant image output', 'UNSUPPORTED_CONTENT')
+      case 'video':
+        throw new LlmError('pi-ai chat history cannot represent structured assistant visual output', 'UNSUPPORTED_CONTENT')
       default:
         // plugin-added block types are not representable in pi-ai.
         break

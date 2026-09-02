@@ -1,5 +1,4 @@
 import { mkdtemp, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import type { VideoAttachmentLimits } from '@deepseek-ai/dsh-attachment'
@@ -29,8 +28,9 @@ describe('local video attachments', () => {
   })
 
   it('stores and verifies a video reference', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'dsh-video-'))
-    roots.push(root)
+    const home = await mkdtemp(join(process.cwd(), '.test-video-home-'))
+    roots.push(home)
+    const root = join(home, 'attachments', 'v1')
     const ref = await saveVideoFile(root, { data: MP4, mediaType: 'video/mp4', name: '/tmp/demo.mp4' }, LIMITS)
     expect(ref.name).toBe('demo.mp4')
     await expect(readVideoFile(root, ref)).resolves.toMatchObject({ ref, data: MP4 })

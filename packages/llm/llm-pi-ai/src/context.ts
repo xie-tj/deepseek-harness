@@ -4,7 +4,7 @@
  * @module dsh-llm-pi-ai/context
  */
 
-import { CallId, contentHasImage, LlmError, offloadRequestImagesWithPolicy, requestImageHandleText } from '@deepseek-ai/dsh-llm'
+import { CallId, contentHasImage, contentHasVideo, LlmError, offloadRequestImagesWithPolicy, requestImageHandleText } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type {
   AttachmentId,
@@ -12,10 +12,25 @@ import type {
   ImageAttachmentRef,
   ImageRequestPolicy,
   RequestImageAttachment,
+  VideoAttachmentRef,
 } from '@deepseek-ai/dsh-attachment'
 import type { Context as PiContext, ImageContent, Message as PiMessage, TextContent, Tool as PiTool } from '@earendil-works/pi-ai'
 import { toPiAssistant } from './replay.ts'
 import { DEFAULT_REQUEST_IMAGE_MAX_BYTES, DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET } from './config.ts'
+
+/** One durable video converted to a marker before pi-ai builds its payload. */
+export interface PiAiVideoPayload {
+  marker: string
+  mediaType: string
+  data: string
+}
+
+/** Collects video payloads for the provider's onPayload replacement hook. */
+export type PiAiVideoSink = (payload: PiAiVideoPayload) => void
+
+function videoMarker(ref: VideoAttachmentRef): string {
+  return `__DSH_VIDEO_${String(ref.attachmentId).replace(/[^a-zA-Z0-9_-]/g, '_')}__`
+}
 
 /** Join the text blocks of a harness message. */
 function flattenText(message: Message): string {
@@ -25,7 +40,6 @@ function flattenText(message: Message): string {
     .join('')
 }
 
-
 /** Flatten text recursively inside one tool result. */
 function toolResultText(blocks: readonly ContentBlock[]): string {
   return blocks.map(block => block.type === 'text'
@@ -33,12 +47,12 @@ function toolResultText(blocks: readonly ContentBlock[]): string {
     : block.type === 'tool-result' ? toolResultText(block.content) : '').join('')
 }
 
-/** Reject image roles that pi-ai cannot replay before request-size offloading can replace them. */
-function assertSupportedImageRoles(messages: readonly Message[]): void {
+/** Reject visual-content roles that pi-ai cannot replay before request-size offloading can replace images. */
+function assertSupportedVisualRoles(messages: readonly Message[]): void {
   for (const message of messages) {
-    if (message.role !== 'user' && contentHasImage(message.content)) {
+    if (message.role !== 'user' && (contentHasImage(message.content) || contentHasVideo(message.content))) {
       throw new LlmError(
-        `pi-ai cannot represent an image in an in-history ${message.role} message`,
+        `pi-ai cannot represent visual content in an in-history ${message.role} message`,
         'UNSUPPORTED_CONTENT',
       )
     }
@@ -48,6 +62,8 @@ function assertSupportedImageRoles(messages: readonly Message[]): void {
 async function userContent(
   blocks: readonly ContentBlock[],
   requestImages: ReadonlyMap<AttachmentId, RequestImageAttachment>,
+  attachments: AttachmentStore,
+  videoSink?: PiAiVideoSink,
 ): Promise<string | (TextContent | ImageContent)[]> {
   const content: (TextContent | ImageContent)[] = []
   for (const block of blocks) {
@@ -65,9 +81,23 @@ async function userContent(
         })
         break
       }
+      case 'video': {
+        if (videoSink === undefined) {
+          throw new LlmError('pi-ai video conversion requires a video payload sink', 'UNSUPPORTED_CONTENT')
+        }
+        const stored = await attachments.readVideo(block.attachment)
+        const marker = videoMarker(stored.ref)
+        videoSink({
+          marker,
+          data: Buffer.from(stored.data).toString('base64'),
+          mediaType: stored.ref.mediaType,
+        })
+        content.push({ type: 'text', text: marker })
+        break
+      }
       case 'tool-result':
         {
-          const nested = await userContent(block.content, requestImages)
+          const nested = await userContent(block.content, requestImages, attachments, videoSink)
           if (typeof nested === 'string') {
             if (nested.length > 0) content.push({ type: 'text', text: nested })
           } else {
@@ -137,8 +167,8 @@ function textOnlyContext(options: GenerateOptions, onReplayDegrade?: (reason: st
   const toolNames = new Map<CallId, string>()
   const messages: PiMessage[] = []
   for (const message of options.messages) {
-    if (contentHasImage(message.content)) {
-      throw new LlmError('pi-ai image conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
+    if (contentHasImage(message.content) || contentHasVideo(message.content)) {
+      throw new LlmError('pi-ai visual conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
     }
     if (message.role === 'system') {
       messages.push({ role: 'user', content: flattenText(message), timestamp: 0 })
@@ -194,6 +224,7 @@ export function toPiContext(
  * @param onReplayDegrade - forwarded to {@link toPiAssistant} for each assistant message.
  * @param maxRequestImageBytes - request-level bound on base64-encoded image payload; omission leaves every image in place.
  * @param requestImagePolicy - route pixel and raw encoded-byte budgets.
+ * @param videoSink - collector for the durable video payloads the provider's onPayload hook injects.
  * @returns the asynchronously resolved pi-ai context.
  */
 export function toPiContext(
@@ -202,6 +233,7 @@ export function toPiContext(
   onReplayDegrade?: (reason: string) => void,
   maxRequestImageBytes?: number,
   requestImagePolicy?: ImageRequestPolicy,
+  videoSink?: PiAiVideoSink,
 ): Promise<PiContext>
 export function toPiContext(
   options: GenerateOptions,
@@ -209,10 +241,11 @@ export function toPiContext(
   onReplayDegrade?: (reason: string) => void,
   maxRequestImageBytes?: number,
   requestImagePolicy?: ImageRequestPolicy,
+  videoSink?: PiAiVideoSink,
 ): PiContext | Promise<PiContext> {
   return attachments === undefined
     ? textOnlyContext(options, onReplayDegrade)
-    : toPiContextWithImages(options, attachments, onReplayDegrade, maxRequestImageBytes, requestImagePolicy)
+    : toPiContextWithImages(options, attachments, onReplayDegrade, maxRequestImageBytes, requestImagePolicy, videoSink)
 }
 
 async function toPiContextWithImages(
@@ -224,8 +257,9 @@ async function toPiContextWithImages(
     maxPixels: DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
     maxBytes: DEFAULT_REQUEST_IMAGE_MAX_BYTES,
   },
+  videoSink?: PiAiVideoSink,
 ): Promise<PiContext> {
-  assertSupportedImageRoles(options.messages)
+  assertSupportedVisualRoles(options.messages)
   const requestMessages = offloadRequestImagesWithPolicy(options.messages, {
     representation: 'base64',
     ...maxRequestImageBytes === undefined ? {} : { maxBytes: maxRequestImageBytes },
@@ -260,7 +294,7 @@ async function toPiContextWithImages(
     }
     // user role: text + tool results (each result becomes its own message).
     const regular = message.content.filter(block => block.type !== 'tool-result')
-    const content = await userContent(regular, requestImages)
+    const content = await userContent(regular, requestImages, attachments, videoSink)
     const results = message.content.filter((block): block is Extract<ContentBlock, { type: 'tool-result' }> => (
       block.type === 'tool-result'
     ))
@@ -268,7 +302,7 @@ async function toPiContextWithImages(
       messages.push({ role: 'user', content, timestamp: 0 })
     }
     for (const result of results) {
-      const resultContent = await userContent(result.content, requestImages)
+      const resultContent = await userContent(result.content, requestImages, attachments, videoSink)
       messages.push({
         role: 'toolResult',
         toolCallId: result.toolCallId,
