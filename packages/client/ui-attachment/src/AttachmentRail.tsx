@@ -12,12 +12,18 @@ import css from './AttachmentRail.module.css'
 export interface AttachmentRailItem {
   /** Stable identity for the React key. */
   id: string
+  /** Thumbnail media kind; 'image' (the default) renders an img, 'video' a
+   * muted metadata video frame. */
+  media?: 'image' | 'video'
   /** Object or data URL rendered as the thumbnail. */
   previewUrl: string
-  /** Image alt text (display name with the owner's fallback applied). */
+  /** Accessible name (display name with the owner's fallback applied). */
   alt: string
   /** Accessible label of the item's remove control. */
   removeLabel: string
+  /** Thumbnail tooltip; defaults to the rail-level open label. A mixed rail
+   * names videos differently from images through this override. */
+  openLabel?: string
 }
 
 /** Rail-level strings the owner resolves from its own locale namespace. */
@@ -169,10 +175,12 @@ export function AttachmentRail<T extends AttachmentRailItem>({ items, labels, on
             <button
               type="button"
               className={css.thumbnail}
-              title={labels.open}
+              title={item.openLabel ?? labels.open}
               onClick={() => { onOpen(item) }}
             >
-              <img src={item.previewUrl} alt={item.alt} />
+              {item.media === 'video'
+                ? <video src={item.previewUrl} muted preload="metadata" aria-label={item.alt} />
+                : <img src={item.previewUrl} alt={item.alt} />}
             </button>
             <button
               type="button"

@@ -69,6 +69,27 @@ describe('AttachmentRail', () => {
     expect(onRemove).toHaveBeenCalledWith(items[1])
   })
 
+  it('renders video drafts as muted metadata players with their own open label', () => {
+    const onOpen = vi.fn()
+    const video: AttachmentRailItem = {
+      id: 'v', media: 'video', previewUrl: 'blob:v', alt: 'clip.mp4',
+      removeLabel: '移除视频 clip.mp4', openLabel: '预览视频',
+    }
+    const view = render(
+      <AttachmentRail items={[item('a'), video]} labels={labels} onOpen={onOpen} onRemove={vi.fn()} />,
+    )
+    const player = view.getByLabelText('clip.mp4')
+    expect(player.tagName).toBe('VIDEO')
+    // React applies `muted` as a DOM property, not a markup attribute.
+    expect((player as HTMLVideoElement).muted).toBe(true)
+    expect((player as HTMLVideoElement).preload).toBe('metadata')
+    // The per-item override wins over the rail-level image tooltip.
+    fireEvent.click(view.getByTitle('预览视频'))
+    expect(onOpen).toHaveBeenCalledWith(video)
+    // Images keep the rail-level tooltip beside it.
+    expect(view.getByTitle('查看原图')).toBeTruthy()
+  })
+
   it('shows edge arrows from scroll geometry and pages a viewport at a time', () => {
     const view = render(
       <AttachmentRail items={[item('a'), item('b'), item('c')]} labels={labels} onOpen={vi.fn()} onRemove={vi.fn()} />,

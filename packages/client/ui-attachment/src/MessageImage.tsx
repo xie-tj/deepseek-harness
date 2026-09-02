@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { ImageLightbox } from './ImageLightbox.tsx'
-import type { ImageLightboxLabels } from './ImageLightbox.tsx'
+import { MediaLightbox } from './MediaLightbox.tsx'
+import type { MediaLightboxLabels } from './MediaLightbox.tsx'
 import css from './MessageImage.module.css'
 
 /** Loads a session-authorized durable image URL. */
@@ -20,7 +20,7 @@ export interface MessageImageLabels {
   /** Retry-control label shown when the load fails. */
   loadFailed: string
   /** Lightbox strings forwarded to the opened preview. */
-  lightbox: ImageLightboxLabels
+  lightbox: MediaLightboxLabels
 }
 
 /** Display box for a lone image (DeepSeek Chat rule): long edge 240px with
@@ -95,7 +95,7 @@ export function MessageImage({ attachment, load, variant, labels }: {
           ? <span className={css.loading}>{labels.loading}</span>
           : <img src={src} alt={label} style={fit === undefined ? undefined : { objectPosition: fit.objectPosition }} />}
       </button>
-      {open && src !== null && <ImageLightbox src={src} alt={label} labels={labels.lightbox} onClose={close} />}
+      {open && src !== null && <MediaLightbox src={src} alt={label} labels={labels.lightbox} onClose={close} />}
     </>
   )
 }

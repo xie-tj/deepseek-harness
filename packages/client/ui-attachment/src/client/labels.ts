@@ -1,15 +1,16 @@
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AttachmentRailLabels } from '../AttachmentRail.tsx'
 import type { DropOverlayLabels } from '../DropOverlay.tsx'
-import type { ImageLightboxLabels } from '../ImageLightbox.tsx'
+import type { MediaLightboxLabels } from '../MediaLightbox.tsx'
 import type { MessageImageLabels } from '../MessageImage.tsx'
+import type { MessageVideoLabels } from '../MessageVideo.tsx'
 
 /**
  * Resolve original-image lightbox strings from the conversation namespace.
  * @param t - conversation namespace translator.
  * @returns translated lightbox labels.
  */
-export function lightboxLabels(t: TranslateNS<'conversation'>): ImageLightboxLabels {
+export function lightboxLabels(t: TranslateNS<'conversation'>): MediaLightboxLabels {
   return { dialog: t('image.preview'), close: t('image.closePreview') }
 }
 
@@ -26,6 +27,28 @@ export function messageImageLabels(t: TranslateNS<'conversation'>): MessageImage
     loading: t('image.loading'),
     loadFailed: t('image.loadFailed'),
     lightbox: lightboxLabels(t),
+  }
+}
+
+/**
+ * Resolve original-video lightbox strings from the conversation namespace.
+ * @param t - conversation namespace translator.
+ * @returns translated video lightbox labels.
+ */
+export function videoLightboxLabels(t: TranslateNS<'conversation'>): MediaLightboxLabels {
+  return { dialog: t('video.preview'), close: t('video.closePreview') }
+}
+
+/**
+ * Resolve historical message-video strings from the conversation namespace.
+ * @param t - conversation namespace translator.
+ * @returns translated message-video labels.
+ */
+export function messageVideoLabels(t: TranslateNS<'conversation'>): MessageVideoLabels {
+  return {
+    video: t('video.label'),
+    loading: t('video.loading'),
+    loadFailed: t('video.loadFailed'),
   }
 }
 

@@ -18,7 +18,9 @@ import type {
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
 import { createChatStore } from './stores.ts'
-import { ConversationController, UnsupportedImageMediaTypeError } from './service.ts'
+import {
+  ConversationController, UnsupportedImageMediaTypeError, UnsupportedVideoMediaTypeError,
+} from './service.ts'
 import type { IConversation } from './service.ts'
 import { ComposerBlockRegistry } from './input/blocks.ts'
 import type { ComposerBlock } from './input/blocks.ts'
@@ -310,25 +312,27 @@ export function apply(ctx: Context): void {
         keyboard: shell,
         addImages: (files) => {
           try {
-            const images = conversation.createDraftImages(files)
-            if (!shell.addImages(images.map(image => image.id))) {
-              conversation.releaseDraftImages(images)
+            const attachments = conversation.createDraftAttachments(files)
+            if (!shell.addImages(attachments.map(attachment => attachment.id))) {
+              for (const attachment of attachments) conversation.releaseDraftAttachment(attachment.id)
             }
             return null
           } catch (error: unknown) {
-            if (error instanceof UnsupportedImageMediaTypeError) {
-              // Positive copy: the supported list is fixed in imageMediaType,
+            if (error instanceof UnsupportedImageMediaTypeError || error instanceof UnsupportedVideoMediaTypeError) {
+              // Positive copy: each supported list is fixed in draftMediaType,
               // and naming it beats echoing the rejected MIME type back.
-              return t('image.unsupportedType')
+              return error instanceof UnsupportedVideoMediaTypeError
+                ? t('video.unsupportedType')
+                : t('image.unsupportedType')
             }
             return error instanceof Error ? error.message : String(error)
           }
         },
         removeImage: (id) => {
-          conversation.releaseDraftImage(id)
+          conversation.releaseDraftAttachment(id)
           shell.removeImage(id)
         },
-        draftImages: ids => conversation.draftImages(ids),
+        draftImages: ids => conversation.draftAttachments(ids),
         resolveSubmitMode: (running, gesture, steeringAvailable) =>
           submissionPolicy.resolve(running, gesture, steeringAvailable),
         toggleCommandMenu: inputTriggers === undefined
@@ -386,6 +390,7 @@ export function apply(ctx: Context): void {
     children: {
       'conversation.chat.node': { kind: 'keyed', scope: 'session', inject: CHAT_NODE_INJECT },
       'conversation.message.images': { kind: 'single', scope: 'session' },
+      'conversation.message.videos': { kind: 'single', scope: 'session' },
     },
     store: chatStore,
     inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {
@@ -402,7 +407,8 @@ export function apply(ctx: Context): void {
           return workspaces.openPath(resolveWorkspacePath(cwd, path))
         },
         loadOlder: () => { void scoped.loadOlder() },
-        loadImage: attachment => conversation.resolveImage(sessionId, attachment),
+        loadImage: attachment => conversation.resolveAttachment(sessionId, attachment),
+        loadVideo: attachment => conversation.resolveAttachment(sessionId, attachment),
         // Unregistered 'trajectory' id is safe: the tab ring falls back to
         // the first view, and the untouched inspect target stays inert.
         inspectCall: (callId) => {

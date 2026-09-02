@@ -9,7 +9,7 @@
 
 /* Same mask recipe as the Modal primitive and the settings dialog. A separate
    layer, not a background on .backdrop: backdrop-filter there would blur the
-   previewed image and the close control along with the page. */
+   previewed media and the close control along with the page. */
 .mask {
   position: absolute;
   inset: 0;
@@ -17,7 +17,7 @@
   backdrop-filter: var(--dsw-mask-blur);
 }
 
-.image {
+.media {
   position: relative;
   max-width: min(100%, 1600px);
   max-height: calc(100vh - 80px);

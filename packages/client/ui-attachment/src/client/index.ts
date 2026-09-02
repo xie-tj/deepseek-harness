@@ -1,8 +1,9 @@
-/** Browser attachment plugin: fills conversation's composer and message-image slots. */
+/** Browser attachment plugin: fills conversation's composer and message media slots. */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { ComposerAttachments } from './ComposerAttachments.tsx'
 import { MessageImages } from './MessageImages.tsx'
+import { MessageVideos } from './MessageVideos.tsx'
 
 /** Slot registry required by this presentation plugin. */
 export const inject = ['slots']
@@ -17,4 +18,8 @@ export function apply(ctx: ClientContext): void {
     name: 'conversation.message.images',
     locale: 'conversation',
   }, MessageImages))
+  ctx.slots.inject('conversation.message.videos', () => ctx.slots.register({
+    name: 'conversation.message.videos',
+    locale: 'conversation',
+  }, MessageVideos))
 }

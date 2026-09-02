@@ -251,6 +251,34 @@ describe('image draft rail', () => {
     expect(shell.snapshot.draft).toBe('同时粘贴的文字')
   })
 
+  it('accepts video drafts through paste beside images', () => {
+    const addImages = vi.fn(() => null)
+    const result = bench({ addImages })
+    const clip = new File([Uint8Array.of(1, 2, 3)], 'clip.mp4', { type: 'video/mp4' })
+    const webm = new File([Uint8Array.of(4)], 'clip.webm', { type: 'video/webm' })
+    const mov = new File([Uint8Array.of(5)], 'clip.mov', { type: 'video/quicktime' })
+    fireEvent.paste(result.textarea, {
+      clipboardData: {
+        items: [{ kind: 'file', type: 'video/mp4', getAsFile: () => clip }],
+        getData: () => '',
+      },
+    })
+    expect(addImages).toHaveBeenCalledWith([clip])
+    // A mixed batch passes through the same intake in one ordered call.
+    const image = new File([Uint8Array.of(6)], 'pixel.png', { type: 'image/png' })
+    act(() => { attachmentOwner(result.slotCalls).onAddImages([image, webm, mov]) })
+    expect(addImages).toHaveBeenCalledWith([image, webm, mov])
+    expect(result.view.queryByRole('alert')).toBeNull()
+  })
+
+  it('announces a rejected video type with the video-specific copy', () => {
+    const addImages = vi.fn(() => '仅支持 MP4、WebM、MOV 格式的视频')
+    const result = bench({ addImages })
+    const files = [new File([new ArrayBuffer(64)], 'a.avi', { type: 'video/x-msvideo' })]
+    act(() => { attachmentOwner(result.slotCalls).onAddImages(files) })
+    expect(addImages).toHaveBeenCalledWith(files)
+    expect(result.view.getByRole('alert').textContent).toContain('仅支持 MP4、WebM、MOV 格式的视频')
+  })
   it('pre-checks projected limits at intake: whole-batch refusal with product copy, none added', () => {
     const limits = {
       maxImageBytes: 1024 * 1024,
@@ -290,6 +318,48 @@ describe('image draft rail', () => {
     intake(within, [fits])
     expect(within.props.addImages).toHaveBeenCalledWith([fits])
     expect(within.view.queryByRole('alert')).toBeNull()
+  })
+
+  it('applies the projected image limits to the image subset only; videos pass through', () => {
+    const limits = {
+      maxImageBytes: 1024 * 1024,
+      maxImagesPerMessage: 2,
+      maxMessageImageBytes: 2 * 1024 * 1024,
+      maxImagePixels: 40_000_000,
+      maxImageDimension: 2000,
+      mediaTypes: ['image/png'] as const,
+    }
+    const intake = (result: ReturnType<typeof bench>, files: File[]) => {
+      act(() => { attachmentOwner(result.slotCalls).onAddImages(files) })
+    }
+    // A video never counts against the image-count limit: two images plus a
+    // video stay under the two-image cap for images alone.
+    const withVideo = bench({ addImages: vi.fn(() => null), imageLimits: limits })
+    intake(withVideo, [
+      new File([new ArrayBuffer(8)], 'a.png', { type: 'image/png' }),
+      new File([new ArrayBuffer(8)], 'b.png', { type: 'image/png' }),
+      new File([new ArrayBuffer(8)], 'c.mp4', { type: 'video/mp4' }),
+    ])
+    expect(withVideo.props.addImages).toHaveBeenCalled()
+    expect(withVideo.view.queryByRole('alert')).toBeNull()
+    cleanup()
+    // ...while a third IMAGE still trips the count limit.
+    const overCount = bench({ addImages: vi.fn(() => null), imageLimits: limits })
+    intake(overCount, [
+      new File([new ArrayBuffer(8)], 'a.png', { type: 'image/png' }),
+      new File([new ArrayBuffer(8)], 'b.png', { type: 'image/png' }),
+      new File([new ArrayBuffer(8)], 'c.png', { type: 'image/png' }),
+      new File([new ArrayBuffer(8)], 'd.mp4', { type: 'video/mp4' }),
+    ])
+    expect(overCount.view.getByRole('alert').textContent).toContain('一条消息最多添加 2 张图片')
+    expect(overCount.props.addImages).not.toHaveBeenCalled()
+    cleanup()
+    // An oversized VIDEO is not measured by the image byte limits (the host
+    // enforces the video policy authoritatively at submit).
+    const bigVideo = bench({ addImages: vi.fn(() => null), imageLimits: limits })
+    intake(bigVideo, [new File([new ArrayBuffer(4 * 1024 * 1024)], 'big.mp4', { type: 'video/mp4' })])
+    expect(bigVideo.props.addImages).toHaveBeenCalled()
+    expect(bigVideo.view.queryByRole('alert')).toBeNull()
   })
 
   it('announces the format problem before any limit when the batch holds a non-image', () => {

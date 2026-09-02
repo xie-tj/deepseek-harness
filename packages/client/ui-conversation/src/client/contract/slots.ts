@@ -1,6 +1,6 @@
 /** Conversation slot declarations and their composed component props. */
 import type { ReactNode, RefObject } from 'react'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { ImageAttachmentRef, VideoAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   InjectFace, MaybeSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
   SlotHookFactory, SnapshotSelectorHook,
@@ -22,9 +22,13 @@ import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submissi
 import type { ChatNode, ChatNodeKind } from './chat-nodes.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
-/** Browser-owned image that has not crossed the durable host boundary. */
+/**
+ * Browser-owned draft attachment that has not crossed the durable host
+ * boundary. The kind drives thumbnail rendering and prompt-part serialization
+ * ({@link "service".ConversationController}); bytes stay browser-owned until send.
+ */
 export interface ComposerAttachment {
-  kind: 'image'
+  kind: 'image' | 'video'
   id: DraftAttachmentId
   file: File
   previewUrl: string
@@ -56,6 +60,19 @@ export interface MessageImagesOwnerProps {
 
 /** Slot-backed renderer used by chat nodes without importing an attachment implementation. */
 export type RenderMessageImages = (owner: Omit<MessageImagesOwnerProps, 'loadImage'>) => ReactNode
+
+/** Historical video group handed to the optional attachment presentation plugin. */
+export interface MessageVideosOwnerProps {
+  /** Consecutive video blocks rendered as one gallery. */
+  videos: readonly { readonly attachment: VideoAttachmentRef }[]
+  /** Session-authorized durable video loader. */
+  loadVideo: (attachment: VideoAttachmentRef) => Promise<string>
+  /** Message-side alignment. */
+  align: 'start' | 'end'
+}
+
+/** Slot-backed renderer used by chat nodes without importing an attachment implementation. */
+export type RenderMessageVideos = (owner: Omit<MessageVideosOwnerProps, 'loadVideo'>) => ReactNode
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
@@ -122,6 +139,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     }
     /** Optional renderer for one consecutive group of durable message images. */
     'conversation.message.images': { kind: 'single'; scope: 'session'; owner: MessageImagesOwnerProps }
+    /** Optional renderer for one consecutive group of durable message videos. */
+    'conversation.message.videos': { kind: 'single'; scope: 'session'; owner: MessageVideosOwnerProps }
     /**
      * The chat view's per-command row hole: keyed dispatch on the command
      * name (`command/run.name`; a run-less cross-window node has none and
@@ -423,6 +442,8 @@ export interface ChatNodeOwnerProps {
   forkAt: (seq: number) => void
   /** Render a historical image group through the attachment slot. */
   renderMessageImages: RenderMessageImages
+  /** Render a historical video group through the attachment slot. */
+  renderMessageVideos: RenderMessageVideos
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
 }
 
@@ -760,6 +781,8 @@ export interface ChatViewInjected {
   loadOlder: () => void
   /** Resolve a session-authorized historical image for inline display. */
   loadImage: (attachment: ImageAttachmentRef) => Promise<string>
+  /** Resolve a session-authorized historical video for inline playback. */
+  loadVideo: (attachment: VideoAttachmentRef) => Promise<string>
   /** Hand a call off to the trajectory view: write the one-shot inspect target and switch tabs. */
   inspectCall: (callId: CallId) => void
   /**
@@ -787,7 +810,7 @@ export interface ChatViewInjected {
 /** Full chat-view component props: runtime & its Tool/command/tail render shares & store & injected & locale seat. */
 export type ChatViewSlotProps =
   PropsRuntime<'conversation.view'>
-  & PropsRenderSlots<'conversation.chat.node' | 'conversation.message.images'>
+  & PropsRenderSlots<'conversation.chat.node' | 'conversation.message.images' | 'conversation.message.videos'>
   & PropsStore<ChatStore> & ChatViewInjected & PropsLocale<'conversation'>
 
 /** Full props of the attachment plugin's composer entry. */
@@ -796,6 +819,9 @@ export type ComposerAttachmentsProps =
 
 /** Full props of the attachment plugin's message-gallery entry. */
 export type MessageImagesProps = PropsRuntime<'conversation.message.images'> & PropsLocale<'conversation'>
+
+/** Full props of the attachment plugin's message-video entry. */
+export type MessageVideosProps = PropsRuntime<'conversation.message.videos'> & PropsLocale<'conversation'>
 
 /**
  * Injected share of the details slot: the panel is otherwise a pure reader of

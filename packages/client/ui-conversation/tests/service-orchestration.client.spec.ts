@@ -10,7 +10,9 @@ import { makeTranslate, SlotTestRuntime } from '@deepseek-ai/dsh-client-test-run
 import type { QueuedMessage, SessionFace } from '@deepseek-ai/dsh-client-runtime/client'
 import { ComposerBlockRegistry } from '../src/client/input/blocks.ts'
 import { InputHub } from '../src/client/input/hub.ts'
-import { ConversationController, UnsupportedImageMediaTypeError } from '../src/client/service.ts'
+import {
+  ConversationController, UnsupportedImageMediaTypeError, UnsupportedVideoMediaTypeError,
+} from '../src/client/service.ts'
 import { zh } from '../src/client/locales.ts'
 
 async function bench(readAttachment?: SessionFace['readAttachment']) {
@@ -88,13 +90,13 @@ describe('ConversationController', () => {
     const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:draft-1')
     const revoked = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
     try {
-      const [attachment] = b.root.createDraftImages([
+      const [attachment] = b.root.createDraftAttachments([
         new File([new Uint8Array(4)], 'a.png', { type: 'image/png' }),
       ])
       if (attachment === undefined) throw new Error('draft attachment missing')
       b.root.input.for(b.runtime.sessions.scope('s1')!).addImages([attachment.id])
       await b.runtime.sessions.remove('s1')
-      expect(b.root.draftImages([attachment.id])).toEqual([])
+      expect(b.root.draftAttachments([attachment.id])).toEqual([])
       expect(revoked).toHaveBeenCalledWith('blob:draft-1')
     } finally {
       created.mockRestore()
@@ -106,10 +108,14 @@ describe('ConversationController', () => {
   it('validates every MIME type before allocating previews', async () => {
     const b = await bench()
     const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:preview')
-    expect(() => b.root.createDraftImages([
+    expect(() => b.root.createDraftAttachments([
       new File([Uint8Array.of(1)], 'valid.png', { type: 'image/png' }),
       new File([Uint8Array.of(2)], 'invalid.svg', { type: 'image/svg+xml' }),
     ])).toThrow(UnsupportedImageMediaTypeError)
+    expect(() => b.root.createDraftAttachments([
+      new File([Uint8Array.of(1)], 'valid.mp4', { type: 'video/mp4' }),
+      new File([Uint8Array.of(2)], 'invalid.avi', { type: 'video/x-msvideo' }),
+    ])).toThrow(UnsupportedVideoMediaTypeError)
     expect(created).not.toHaveBeenCalled()
     created.mockRestore()
     await b.runtime.dispose()
@@ -122,10 +128,31 @@ describe('ConversationController', () => {
     const attachment = {
       attachmentId: AttachmentId('image-1'), mediaType: 'image/png', bytes: 1, width: 1, height: 1,
     } as const
-    const pending = b.root.resolveImage(sessionId, attachment)
+    const pending = b.root.resolveAttachment(sessionId, attachment)
     b.root.releaseSessionImages(sessionId)
     read.resolve({ ok: true, value: { attachment, data: Uint8Array.of(1) } })
-    await expect(pending).rejects.toThrow('historical image scope was released')
+    await expect(pending).rejects.toThrow('historical attachment scope was released')
+    await b.runtime.dispose()
+  })
+
+  it('serializes mixed image and video drafts into ordered typed prompt parts', async () => {
+    const b = await bench()
+    const [image, video] = b.root.createDraftAttachments([
+      new File([Uint8Array.of(1, 2)], 'pic.png', { type: 'image/png' }),
+      new File([Uint8Array.of(3, 4, 5)], 'clip.mp4', { type: 'video/mp4' }),
+    ])
+    if (image === undefined || video === undefined) throw new Error('draft attachments missing')
+    expect(image.kind).toBe('image')
+    expect(video.kind).toBe('video')
+    const session = b.runtime.sessions.binding('s1')!.session
+    await b.root.sendSession(session, 'see this', [image.id, video.id], 'queue')
+    expect(b.prompt).toHaveBeenCalledWith([
+      { type: 'image', mediaType: 'image/png', data: btoa(String.fromCharCode(1, 2)), name: 'pic.png' },
+      { type: 'video', mediaType: 'video/mp4', data: btoa(String.fromCharCode(3, 4, 5)), name: 'clip.mp4' },
+      { type: 'text', text: 'see this' },
+    ], 'queue', undefined)
+    // A sent draft is released with its preview URL.
+    expect(b.root.draftAttachments([image.id, video.id])).toEqual([])
     await b.runtime.dispose()
   })
 

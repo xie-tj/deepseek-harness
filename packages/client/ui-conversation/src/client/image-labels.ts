@@ -52,5 +52,9 @@ export function attachmentErrorText(
       break
     default: break
   }
+  // The host's video rejection codes are not landed yet; route any VIDEO-
+  // carrying reason to the video send-failed line so a video rejection never
+  // reads as an image failure. Everything else keeps the image fallback.
+  if (reason.includes('VIDEO')) return t('video.sendFailed', { reason })
   return t('image.sendFailed', { reason })
 }

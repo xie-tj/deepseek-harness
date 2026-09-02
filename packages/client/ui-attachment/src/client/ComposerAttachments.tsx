@@ -5,7 +5,7 @@ import type {
 import { AttachmentRail } from '../AttachmentRail.tsx'
 import type { AttachmentRailItem } from '../AttachmentRail.tsx'
 import { DropOverlay } from '../DropOverlay.tsx'
-import { ImageLightbox } from '../ImageLightbox.tsx'
+import { MediaLightbox } from '../MediaLightbox.tsx'
 import { attachmentRailLabels, dropOverlayLabels, lightboxLabels } from './labels.ts'
 import css from './ComposerAttachments.module.css'
 
@@ -105,7 +105,7 @@ export function ComposerAttachments({
         </div>
       )}
       {preview !== null && (
-        <ImageLightbox
+        <MediaLightbox
           src={preview.previewUrl}
           alt={preview.file.name || t('image.original')}
           labels={lightboxLabels(t)}

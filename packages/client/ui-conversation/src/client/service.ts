@@ -14,7 +14,9 @@ import type { Context } from '@deepseek-ai/cordis'
 // method) instead of the standalone helper.
 import type { ISessions, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SubmitImageAttachment, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import type { ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type {
+  ImageAttachmentRef, ImageMediaType, VideoAttachmentRef, VideoMediaType,
+} from '@deepseek-ai/dsh-attachment'
 import type { ComposerAttachment } from './contract/slots.ts'
 import type { QueueAction, QueueItemId } from './contract/queue.ts'
 import type { ComposerBlocks } from './input/blocks.ts'
@@ -59,10 +61,34 @@ export interface IConversation {
   loadOlder(): Promise<void>
 }
 
+/** Raster image formats accepted by the version-one attachment path. */
+const IMAGE_MEDIA_TYPES: readonly ImageMediaType[] = ['image/png', 'image/jpeg', 'image/webp', 'image/gif']
+
+/** Native video formats accepted by the video attachment path. */
+const VIDEO_MEDIA_TYPES: readonly VideoMediaType[] = ['video/mp4', 'video/webm', 'video/quicktime']
+
+/**
+ * Whether the browser-declared MIME is an accepted draft image type.
+ * @param mediaType - browser-declared MIME value, possibly empty.
+ * @returns whether intake may treat the file as an image.
+ */
+export function isDraftImageMediaType(mediaType: string): boolean {
+  return (IMAGE_MEDIA_TYPES as readonly string[]).includes(mediaType)
+}
+
+/**
+ * Whether the browser-declared MIME is an accepted draft video type.
+ * @param mediaType - browser-declared MIME value, possibly empty.
+ * @returns whether intake may treat the file as a video.
+ */
+export function isDraftVideoMediaType(mediaType: string): boolean {
+  return (VIDEO_MEDIA_TYPES as readonly string[]).includes(mediaType)
+}
+
 /** Create one browser-only draft descriptor; only its id enters input state. */
 function browserDraftAttachment(file: File): ComposerAttachment {
   return {
-    kind: 'image',
+    kind: isDraftVideoMediaType(file.type) ? 'video' : 'image',
     id: crypto.randomUUID() as DraftAttachmentId,
     previewUrl: URL.createObjectURL(file),
     file,
@@ -88,13 +114,26 @@ export class UnsupportedImageMediaTypeError extends Error {
   }
 }
 
+/** Unsupported browser-declared video type, localized by the UI boundary. */
+export class UnsupportedVideoMediaTypeError extends Error {
+  /** Browser-declared MIME value, possibly empty. */
+  readonly mediaType: string
+
+  /** @param mediaType - Browser-declared MIME value, possibly empty. */
+  constructor(mediaType: string) {
+    super(`unsupported video media type: ${mediaType || '(empty)'}`)
+    this.name = 'UnsupportedVideoMediaTypeError'
+    this.mediaType = mediaType
+  }
+}
+
 /** Scope-addressed conversation service (root singleton, provided as `conversation`). */
 export class ConversationController extends Service implements IConversation {
   /** The per-session input machine registry (SessionInputResolver face). */
   readonly input: SessionInputResolver
   /** The per-session composer-block registry. */
   readonly blocks: ComposerBlocks
-  private readonly draftAttachments = new Map<DraftAttachmentId, ComposerAttachment>()
+  private readonly draftAttachmentTable = new Map<DraftAttachmentId, ComposerAttachment>()
   private readonly imageUrls = new Map<string, ImageUrlEntry>()
   private readonly imageGenerations = new Map<SessionId, number>()
   private readonly createdImageUrls = new Set<string>()
@@ -115,7 +154,7 @@ export class ConversationController extends Service implements IConversation {
       this.disposed = true
       for (const url of this.createdImageUrls) revokePreview(url)
       this.createdImageUrls.clear()
-      this.draftAttachments.clear()
+      this.draftAttachmentTable.clear()
       this.imageUrls.clear()
       this.imageGenerations.clear()
     }, 'conversation attachment URL cache')
@@ -149,11 +188,11 @@ export class ConversationController extends Service implements IConversation {
     mode: InputSubmitMode,
     signal?: AbortSignal,
   ): Promise<SubmitOutcome> {
-    const attachments = this.draftImages(imageIds)
+    const attachments = this.draftAttachments(imageIds)
     if (attachments.length !== imageIds.length) {
-      throw new Error('conversation.sendSession: one or more draft images are no longer available')
+      throw new Error('conversation.sendSession: one or more draft attachments are no longer available')
     }
-    const uploaded = await this.serializeImages(attachments.map(attachment => attachment.file))
+    const uploaded = await this.serializeAttachments(attachments)
     const content = [...uploaded, ...(text === '' ? [] : [{ type: 'text' as const, text }])]
     const result = await session.prompt(content, mode, signal)
     if (!result.ok) return { kind: 'error' }
@@ -162,29 +201,33 @@ export class ConversationController extends Service implements IConversation {
   }
 
   /**
-   * Create runtime-only draft images and their object URLs.
+   * Create runtime-only draft attachments and their object URLs. Every MIME
+   * type is validated before any preview is allocated, so a rejected batch
+   * leaves no object URLs behind.
    * @param files - browser files to register after MIME validation.
    * @returns ordered draft descriptors.
+   * @throws UnsupportedImageMediaTypeError or UnsupportedVideoMediaTypeError
+   * for the first file whose declared type neither path accepts.
    */
-  createDraftImages(files: readonly File[]): readonly ComposerAttachment[] {
-    for (const file of files) imageMediaType(file.type)
+  createDraftAttachments(files: readonly File[]): readonly ComposerAttachment[] {
+    for (const file of files) draftMediaType(file.type)
     return files.map((file) => {
       const attachment = browserDraftAttachment(file)
-      this.draftAttachments.set(attachment.id, attachment)
+      this.draftAttachmentTable.set(attachment.id, attachment)
       this.createdImageUrls.add(attachment.previewUrl)
       return attachment
     })
   }
 
   /**
-   * Resolve ordered input-state ids to runtime-owned draft images.
+   * Resolve ordered input-state ids to runtime-owned draft attachments.
    * @param ids - draft attachment ids.
    * @returns descriptors that remain live, in requested order.
    */
-  draftImages(ids: readonly DraftAttachmentId[]): readonly ComposerAttachment[] {
+  draftAttachments(ids: readonly DraftAttachmentId[]): readonly ComposerAttachment[] {
     const attachments: ComposerAttachment[] = []
     for (const id of ids) {
-      const attachment = this.draftAttachments.get(id)
+      const attachment = this.draftAttachmentTable.get(id)
       if (attachment !== undefined) attachments.push(attachment)
     }
     return attachments
@@ -198,7 +241,7 @@ export class ConversationController extends Service implements IConversation {
    * @returns base64 payloads in id order.
    */
   async serializeDraftImages(imageIds: readonly DraftAttachmentId[]): Promise<readonly SubmitImageAttachment[]> {
-    const attachments = this.draftImages(imageIds)
+    const attachments = this.draftAttachments(imageIds)
     if (attachments.length !== imageIds.length) {
       throw new Error('conversation.serializeDraftImages: one or more draft images are no longer available')
     }
@@ -206,53 +249,56 @@ export class ConversationController extends Service implements IConversation {
   }
 
   /**
-   * Release one browser-owned draft image and preview URL.
+   * Release one browser-owned draft attachment and preview URL.
    * @param id - draft attachment id.
    */
-  releaseDraftImage(id: DraftAttachmentId): void {
-    const attachment = this.draftAttachments.get(id)
+  releaseDraftAttachment(id: DraftAttachmentId): void {
+    const attachment = this.draftAttachmentTable.get(id)
     if (attachment === undefined) return
-    this.draftAttachments.delete(id)
+    this.draftAttachmentTable.delete(id)
     this.createdImageUrls.delete(attachment.previewUrl)
     revokePreview(attachment.previewUrl)
   }
 
   /**
-   * Release a set of browser-owned draft images.
+   * Release a set of browser-owned draft attachments.
    * @param attachments - descriptors to release.
    */
   releaseDraftImages(attachments: readonly ComposerAttachment[]): void {
-    for (const attachment of attachments) this.releaseDraftImage(attachment.id)
+    for (const attachment of attachments) this.releaseDraftAttachment(attachment.id)
   }
 
   /**
-   * Resolve and cache one session-authorized historical image URL.
+   * Resolve and cache one session-authorized historical attachment URL.
+   * Images and videos share one cache: the key is the durable attachment id,
+   * which is unique across media kinds.
    * @param sessionId - owning session authorization scope.
-   * @param attachment - durable image reference.
+   * @param attachment - durable image or video reference.
    * @returns browser URL valid until its rendered session is released.
    */
-  resolveImage(sessionId: SessionId, attachment: ImageAttachmentRef): Promise<string> {
-    if (this.disposed) return Promise.reject(new Error('conversation.resolveImage: service is disposed'))
+  resolveAttachment(sessionId: SessionId, attachment: ImageAttachmentRef | VideoAttachmentRef): Promise<string> {
+    if (this.disposed) return Promise.reject(new Error('conversation.resolveAttachment: service is disposed'))
     const key = `${sessionId}:${attachment.attachmentId}`
     const cached = this.imageUrls.get(key)
     if (cached !== undefined) return cached.pending
     const generation = this.imageGenerations.get(sessionId) ?? 0
     const session = this.requireSessions().binding(sessionId)?.session
     if (session === undefined) {
-      return Promise.reject(new Error(`conversation.resolveImage: unknown session "${sessionId}"`))
+      return Promise.reject(new Error(`conversation.resolveAttachment: unknown session "${sessionId}"`))
     }
     const pending = session.readAttachment(attachment.attachmentId)
       .then((result) => {
         if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
-        if (this.disposed) throw new Error('conversation.resolveImage: service was disposed before loading completed')
+        if (this.disposed) throw new Error('conversation.resolveAttachment: service was disposed before loading completed')
         if ((this.imageGenerations.get(sessionId) ?? 0) !== generation) {
-          throw new Error('historical image scope was released before loading completed')
+          throw new Error('historical attachment scope was released before loading completed')
         }
+        const mediaType = result.value.attachment.mediaType
         if (typeof URL.createObjectURL !== 'function') {
-          return `data:${result.value.attachment.mediaType};base64,${bytesToBase64(result.value.data)}`
+          return `data:${mediaType};base64,${bytesToBase64(result.value.data)}`
         }
         const bytes = Uint8Array.from(result.value.data)
-        const url = URL.createObjectURL(new Blob([bytes.buffer], { type: result.value.attachment.mediaType }))
+        const url = URL.createObjectURL(new Blob([bytes.buffer], { type: mediaType }))
         this.createdImageUrls.add(url)
         return url
       })
@@ -332,9 +378,17 @@ export class ConversationController extends Service implements IConversation {
     return sessions
   }
 
-  /** Convert browser files to canonical base64 prompt parts. */
-  private serializeImages(images: readonly File[]): Promise<Parameters<SessionFace['prompt']>[0]> {
-    return Promise.all(images.map(async file => ({ type: 'image' as const, ...await this.encodeImage(file) })))
+  /** Convert browser-owned draft attachments to canonical base64 prompt parts. */
+  private serializeAttachments(attachments: readonly ComposerAttachment[]): Promise<Parameters<SessionFace['prompt']>[0]> {
+    return Promise.all(attachments.map(async (attachment) => {
+      const data = bytesToBase64(new Uint8Array(await attachment.file.arrayBuffer()))
+      const name = attachment.file.name === '' ? {} : { name: attachment.file.name }
+      // Serialization re-validates the declared MIME: intake is the only
+      // production producer, but sendSession accepts any id-addressed draft.
+      return isDraftVideoMediaType(attachment.file.type)
+        ? { type: 'video' as const, mediaType: videoMediaType(attachment.file.type), data, ...name }
+        : { type: 'image' as const, mediaType: imageMediaType(attachment.file.type), data, ...name }
+    }))
   }
 
   /** Canonical base64 wire form of one browser image file. */
@@ -347,16 +401,42 @@ export class ConversationController extends Service implements IConversation {
   }
 }
 
+/**
+ * Validate every file's declared MIME before any draft is created.
+ * @param value - browser-declared MIME value, possibly empty.
+ * @returns the accepted media kind.
+ * @throws UnsupportedImageMediaTypeError or UnsupportedVideoMediaTypeError
+ * when neither path accepts the value; the declared family decides which
+ * rejection names, with a non-video type reading as an image rejection (the
+ * pre-video default).
+ */
+function draftMediaType(value: string): ImageMediaType | VideoMediaType {
+  if (isDraftImageMediaType(value)) return value as ImageMediaType
+  if (isDraftVideoMediaType(value)) return value as VideoMediaType
+  if (value.startsWith('video/')) throw new UnsupportedVideoMediaTypeError(value)
+  throw new UnsupportedImageMediaTypeError(value)
+}
+
+/**
+ * Narrow a browser-declared MIME to the accepted image type.
+ * @param value - browser-declared MIME value, possibly empty.
+ * @returns the typed image media kind.
+ * @throws UnsupportedImageMediaTypeError when the value is not accepted.
+ */
 function imageMediaType(value: string): ImageMediaType {
-  switch (value) {
-    case 'image/png':
-    case 'image/jpeg':
-    case 'image/webp':
-    case 'image/gif':
-      return value
-    default:
-      throw new UnsupportedImageMediaTypeError(value)
-  }
+  if (isDraftImageMediaType(value)) return value as ImageMediaType
+  throw new UnsupportedImageMediaTypeError(value)
+}
+
+/**
+ * Narrow a browser-declared MIME to the accepted video type.
+ * @param value - browser-declared MIME value, possibly empty.
+ * @returns the typed video media kind.
+ * @throws UnsupportedVideoMediaTypeError when the value is not accepted.
+ */
+function videoMediaType(value: string): VideoMediaType {
+  if (isDraftVideoMediaType(value)) return value as VideoMediaType
+  throw new UnsupportedVideoMediaTypeError(value)
 }
 
 function bytesToBase64(data: Uint8Array): string {
