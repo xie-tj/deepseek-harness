@@ -14,6 +14,8 @@ The append-only event types. Merge-extensible: a plugin declares extra event typ
 /** A user-role specialization of the one shared message representation. */
 interface UserMessage extends Message {
   readonly role: 'user'
+  /** Internal admission metadata consumed before the durable user event is written. */
+  readonly surfaceOp?: UserMessageSurfaceOp
 }
 ```
 
@@ -53,6 +55,21 @@ interface SessionEventMap {
    * project their `content` verbatim; `source` tells them apart.
    */
   'user/message': UserMessage
+  /**
+   * Durable audit record for a same-session latest-user revision. The replacement user/message
+   * cites the same source event sequences and carries the model-visible replacement content;
+   * this log-only record preserves the edit intent without exposing it as conversation content.
+   * @param targetMessageId - identity of the visible message being replaced.
+   * @param targetSeq - sequence of the visible message being replaced.
+   * @param replacementMessageId - identity of the queued replacement message.
+   * @param sourceEventSeqs - raw surface events shadowed by the replacement.
+   */
+  'session/revision': {
+    targetMessageId: MessageId
+    targetSeq: number
+    replacementMessageId: MessageId
+    sourceEventSeqs: number[]
+  }
   /** Raw stream chunk — token-level replay fidelity. */
   'assistant/chunk': { turn: number; step: number; chunk: StreamChunk }
   /**

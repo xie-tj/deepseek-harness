@@ -1,10 +1,10 @@
-# 持久图片附件
+# 持久图片和视频附件
 
 [English](attachment.md) | 中文
 
-附件 seam 将二进制图片的所有权与会话日志分离。生产方把经过校验的编码字节交给 [`ctx.attachments`](#ctxattachments--attachmentstore-abstract-seam)；只有对象完成持久化后，该服务才会发布不可变的内容寻址引用。会话事件和模型可见的 `ImageBlock` 包含该引用及其元数据，绝不包含浏览器对象 URL、宿主临时路径、提供方 URL 或 base64 数据。
+附件 seam 将二进制图片和视频的所有权与会话日志分离。生产方把经过校验的编码字节交给 [`ctx.attachments`](#ctxattachments--attachmentstore-abstract-seam)；只有对象完成持久化后，该服务才会发布不可变的内容寻址引用。会话事件和模型可见的图片或视频块包含该引用及其元数据，绝不包含浏览器对象 URL、宿主临时路径、提供方 URL 或 base64 数据。
 
-未发送的浏览器草稿可以保留在内存中，原生客户端也可以将其暂存于操作系统临时存储。宿主接受用户消息后，会先把消息中的图片移到 `<DSH_HOME>/attachments/v1` 下，再追加用户事件。结构化模型图片输出遵循同样的先持久化、后追加事件规则。
+未发送的浏览器草稿可以保留在内存中，原生客户端也可以将其暂存于操作系统临时存储。宿主接受用户消息后，会先把消息中的图片和视频移到 `<DSH_HOME>/attachments/v1` 下，再追加用户事件。结构化模型图片输出遵循同样的先持久化、后追加事件规则。
 
 来源：[`packages/attachment/attachment/src/types.ts`](../../packages/attachment/attachment/src/types.ts)
 
@@ -184,6 +184,35 @@ abstract readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<Store
  * @returns request bytes and the cache/upload identity covering every transform input.
  */
 readImageRequest( ref: ImageAttachmentRef, policy: ImageRequestPolicy, signal?: AbortSignal, ): Promise<RequestImageAttachment>
+
+/**
+ * Reject video when the concrete store has not opted into video persistence.
+ * @param _input - validated candidate ignored by the image-only default.
+ * @returns nothing; rejection is the unsupported-video signal.
+ */
+async validateVideo(_input: SaveVideoAttachment): Promise<void>
+
+/**
+ * Validate one ordered video batch before committing any member.
+ * @param inputs - caller-ordered candidates checked against the configured video limits.
+ * @returns durable references in input order; no reference exists unless every member validates.
+ */
+async saveVideos(inputs: readonly SaveVideoAttachment[]): Promise<readonly VideoAttachmentRef[]>
+
+/**
+ * Validate and durably commit one video; concrete stores opt in by overriding this method.
+ * @param _input - validated candidate ignored by the image-only default.
+ * @returns the committed durable reference.
+ */
+async saveVideo(_input: SaveVideoAttachment): Promise<VideoAttachmentRef>
+
+/**
+ * Read one verified video; concrete stores opt in by overriding this method.
+ * @param _ref - durable reference ignored by the image-only default.
+ * @param _signal - optional cancellation ignored by the default.
+ * @returns the stored bytes with their verified metadata.
+ */
+async readVideo(_ref: VideoAttachmentRef, _signal?: AbortSignal): Promise<StoredVideoAttachment>
 ```
 
 Source: [`packages/attachment/attachment/src/index.ts`](../../packages/attachment/attachment/src/index.ts)

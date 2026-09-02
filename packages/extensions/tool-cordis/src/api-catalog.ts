@@ -426,6 +426,11 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     description: 'Immutable binary attachment service. Implementations validate bytes before publishing a reference.',
     methods: [
       {
+        signature: 'readonly videoLimits: VideoAttachmentLimits = NO_VIDEO_LIMITS',
+        description: 'Empty by default so image-only stores remain valid until they opt into video.',
+        parameters: [],
+      },
+      {
         signature: 'abstract readonly imageLimits: ImageAttachmentLimits',
         description: 'Deployment-resolved image policy used by authoritative and fast-path validation.',
         parameters: [],
@@ -460,6 +465,30 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Generate or read one deterministic model-request version from the stored normalized image.',
         parameters: [{ name: 'ref', description: 'durable provider-independent normalized attachment reference.' }, { name: 'policy', description: 'exact route pixel and encoded-byte budget.' }, { name: 'signal', description: 'optional cancellation.' }],
         returns: 'request bytes and the cache/upload identity covering every transform input.',
+      },
+      {
+        signature: 'async validateVideo(_input: SaveVideoAttachment): Promise<void>',
+        description: 'Reject video when the concrete store has not opted into video persistence.',
+        parameters: [{ name: '_input', description: 'validated candidate ignored by the image-only default.' }],
+        returns: 'nothing; rejection is the unsupported-video signal.',
+      },
+      {
+        signature: 'async saveVideos(inputs: readonly SaveVideoAttachment[]): Promise<readonly VideoAttachmentRef[]>',
+        description: 'Validate one ordered video batch before committing any member.',
+        parameters: [{ name: 'inputs', description: 'caller-ordered candidates checked against the configured video limits.' }],
+        returns: 'durable references in input order; no reference exists unless every member validates.',
+      },
+      {
+        signature: 'async saveVideo(_input: SaveVideoAttachment): Promise<VideoAttachmentRef>',
+        description: 'Validate and durably commit one video; concrete stores opt in by overriding this method.',
+        parameters: [{ name: '_input', description: 'validated candidate ignored by the image-only default.' }],
+        returns: 'the committed durable reference.',
+      },
+      {
+        signature: 'async readVideo(_ref: VideoAttachmentRef, _signal?: AbortSignal): Promise<StoredVideoAttachment>',
+        description: 'Read one verified video; concrete stores opt in by overriding this method.',
+        parameters: [{ name: '_ref', description: 'durable reference ignored by the image-only default.' }, { name: '_signal', description: 'optional cancellation ignored by the default.' }],
+        returns: 'the stored bytes with their verified metadata.',
       },
     ],
   },
@@ -3115,7 +3144,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ContentBlockMap',
-    declaration: 'export interface ContentBlockMap {\n    \'text\': TextBlock;\n    \'reasoning\': ReasoningBlock;\n    \'image\': ImageBlock;\n    \'tool-call\': ToolCallBlock;\n    \'tool-result\': ToolResultBlock;\n}',
+    declaration: 'export interface ContentBlockMap {\n    \'text\': TextBlock;\n    \'reasoning\': ReasoningBlock;\n    \'image\': ImageBlock;\n    \'video\': VideoBlock;\n    \'tool-call\': ToolCallBlock;\n    \'tool-result\': ToolResultBlock;\n}',
   },
   {
     name: 'ContentBlockType',
@@ -3795,7 +3824,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ModelModalityMap',
-    declaration: 'export interface ModelModalityMap {\n    text: \'text\';\n    image: \'image\';\n}',
+    declaration: 'export interface ModelModalityMap {\n    text: \'text\';\n    image: \'image\';\n    video: \'video\';\n}',
   },
   {
     name: 'ObjectJsonSchema',
@@ -4024,6 +4053,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SaveTextSpill',
     declaration: 'export interface SaveTextSpill {\n    owner: SpillOwner;\n    source: SpillSource;\n    suggestedName: string;\n    content: string;\n}',
+  },
+  {
+    name: 'SaveVideoAttachment',
+    declaration: 'export interface SaveVideoAttachment {\n    data: Uint8Array;\n    mediaType: VideoMediaType;\n    name?: string;\n}',
   },
   {
     name: 'ScheduledToolDispatch',
@@ -4456,6 +4489,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'StoredImageAttachment',
     declaration: 'export interface StoredImageAttachment {\n    ref: ImageAttachmentRef;\n    data: Uint8Array;\n}',
+  },
+  {
+    name: 'StoredVideoAttachment',
+    declaration: 'export interface StoredVideoAttachment {\n    ref: VideoAttachmentRef;\n    data: Uint8Array;\n}',
   },
   {
     name: 'StreamChunk',
@@ -4940,6 +4977,22 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'UserQuestionProvider',
     declaration: 'export interface UserQuestionProvider {\n    ask(request: AskUserQuestionRequest): Promise<AskUserQuestionAnswer>;\n}',
+  },
+  {
+    name: 'VideoAttachmentLimits',
+    declaration: 'export interface VideoAttachmentLimits {\n    maxVideoBytes: number;\n    maxVideosPerMessage: number;\n    maxMessageVideoBytes: number;\n    mediaTypes: readonly VideoMediaType[];\n}',
+  },
+  {
+    name: 'VideoAttachmentRef',
+    declaration: 'export interface VideoAttachmentRef {\n    attachmentId: AttachmentId;\n    mediaType: VideoMediaType;\n    bytes: number;\n    name?: string;\n}',
+  },
+  {
+    name: 'VideoBlock',
+    declaration: 'export interface VideoBlock {\n    type: \'video\';\n    attachment: VideoAttachmentRef;\n}',
+  },
+  {
+    name: 'VideoMediaType',
+    declaration: 'export type VideoMediaType = \'video/mp4\' | \'video/webm\' | \'video/quicktime\';',
   },
   {
     name: 'WebBootEntry',

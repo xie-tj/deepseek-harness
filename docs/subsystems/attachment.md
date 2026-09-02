@@ -1,10 +1,10 @@
-# Durable Image Attachments
+# Durable Image and Video Attachments
 
 English | [中文](attachment.zh.md)
 
-The attachment seam separates binary image ownership from the session log. A producer gives validated encoded bytes to [`ctx.attachments`](#ctxattachments--attachmentstore-abstract-seam); the service publishes an immutable content-addressed reference only after the object is durable. Session events and model-visible `ImageBlock`s contain that reference and metadata, never a browser object URL, host temporary path, provider URL, or base64 payload.
+The attachment seam separates binary image and video ownership from the session log. A producer gives validated encoded bytes to [`ctx.attachments`](#ctxattachments--attachmentstore-abstract-seam); the service publishes an immutable content-addressed reference only after the object is durable. Session events and model-visible image or video blocks contain that reference and metadata, never a browser object URL, host temporary path, provider URL, or base64 payload.
 
-Unsent browser drafts may stay in memory and native clients may stage them in operating-system temporary storage. Once the host accepts a user message, its images move below `<DSH_HOME>/attachments/v1` before the user event is appended. Structured model image output follows the same persist-before-event rule.
+Unsent browser drafts may stay in memory and native clients may stage them in operating-system temporary storage. Once the host accepts a user message, its images and videos move below `<DSH_HOME>/attachments/v1` before the user event is appended. Structured model image output follows the same persist-before-event rule.
 
 Source: [`packages/attachment/attachment/src/types.ts`](../../packages/attachment/attachment/src/types.ts)
 
@@ -184,6 +184,35 @@ abstract readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<Store
  * @returns request bytes and the cache/upload identity covering every transform input.
  */
 readImageRequest( ref: ImageAttachmentRef, policy: ImageRequestPolicy, signal?: AbortSignal, ): Promise<RequestImageAttachment>
+
+/**
+ * Reject video when the concrete store has not opted into video persistence.
+ * @param _input - validated candidate ignored by the image-only default.
+ * @returns nothing; rejection is the unsupported-video signal.
+ */
+async validateVideo(_input: SaveVideoAttachment): Promise<void>
+
+/**
+ * Validate one ordered video batch before committing any member.
+ * @param inputs - caller-ordered candidates checked against the configured video limits.
+ * @returns durable references in input order; no reference exists unless every member validates.
+ */
+async saveVideos(inputs: readonly SaveVideoAttachment[]): Promise<readonly VideoAttachmentRef[]>
+
+/**
+ * Validate and durably commit one video; concrete stores opt in by overriding this method.
+ * @param _input - validated candidate ignored by the image-only default.
+ * @returns the committed durable reference.
+ */
+async saveVideo(_input: SaveVideoAttachment): Promise<VideoAttachmentRef>
+
+/**
+ * Read one verified video; concrete stores opt in by overriding this method.
+ * @param _ref - durable reference ignored by the image-only default.
+ * @param _signal - optional cancellation ignored by the default.
+ * @returns the stored bytes with their verified metadata.
+ */
+async readVideo(_ref: VideoAttachmentRef, _signal?: AbortSignal): Promise<StoredVideoAttachment>
 ```
 
 Source: [`packages/attachment/attachment/src/index.ts`](../../packages/attachment/attachment/src/index.ts)
