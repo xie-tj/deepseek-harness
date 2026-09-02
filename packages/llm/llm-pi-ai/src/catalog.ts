@@ -14,6 +14,7 @@
 
 import { builtinProviders, getBuiltinModels, getBuiltinProviders } from '@earendil-works/pi-ai/providers/all'
 import type { BuiltinProvider } from '@earendil-works/pi-ai/providers/all'
+import type { ModelModality } from '@deepseek-ai/dsh-llm'
 import type {
   AnthropicMessagesCompat,
   Api,
@@ -37,7 +38,7 @@ import type {
 const NO_COST: ModelCost = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
 
 /** One request modality a pi-ai model may accept. */
-export type PiAiModality = Model<Api>['input'][number]
+export type PiAiModality = ModelModality
 
 /**
  * Every pi-ai request modality. The `Record` key type is a drift gate: a pi-ai
@@ -47,6 +48,7 @@ export type PiAiModality = Model<Api>['input'][number]
 const MODALITY_GATE: Record<PiAiModality, true> = {
   text: true,
   image: true,
+  video: true,
 }
 
 /** Every request modality a profile may declare. */
@@ -61,7 +63,7 @@ export const MODALITIES = Object.keys(MODALITY_GATE) as readonly PiAiModality[]
  * @param configured - the list a `models` or `modelOverrides` entry supplied.
  * @returns the declared modalities, or `undefined` to ask the next level.
  */
-function declaredInput(configured: readonly PiAiModality[] | undefined): Model<Api>['input'] | undefined {
+function declaredInput(configured: readonly PiAiModality[] | undefined): PiAiModality[] | undefined {
   return configured === undefined || configured.length === 0 ? undefined : [...configured]
 }
 
@@ -597,7 +599,7 @@ export interface RouteCatalogRequest {
   /** Output capability for a model neither the entry nor the catalog sizes. */
   defaultMaxTokens: number
   /** Modalities for a model neither the entry nor the catalog declares. */
-  defaultInput: Model<Api>['input']
+  defaultInput: PiAiModality[]
 }
 
 /** Report a route the deployment cannot serve, naming the settings key at fault. */
@@ -871,7 +873,7 @@ export function resolveRouteModels(request: RouteCatalogRequest): RouteCatalog {
       api,
       provider,
       baseUrl,
-      input: declaredInput(entry.input) ?? base?.input ?? [...request.defaultInput],
+      input: (declaredInput(entry.input) ?? base?.input ?? [...request.defaultInput]) as unknown as Model<Api>['input'],
       cost: base?.cost ?? NO_COST,
       contextWindow,
       maxTokens,
