@@ -13,11 +13,16 @@ import type {
   ImageAttachmentRef,
   SaveImageAttachment,
   StoredImageAttachment,
+  SaveVideoAttachment,
+  StoredVideoAttachment,
+  VideoAttachmentLimits,
+  VideoAttachmentRef,
 } from '@deepseek-ai/dsh-attachment'
 import { normalizeImage } from './normalization.ts'
 import type { NormalizationPolicy } from './normalization.ts'
 import { detectImage, probeImage } from './image.ts'
 import type { DetectedImage } from './image.ts'
+import { detectVideo } from './video.ts'
 
 const ID_PATTERN = /^sha256:([a-f0-9]{64})$/
 const durableHomes = new Set<string>()
@@ -40,7 +45,7 @@ function objectPath(root: string, sha256: string): string {
   return join(root, 'objects', sha256.slice(0, 2), sha256)
 }
 
-function ensureReference(ref: ImageAttachmentRef): string {
+function ensureReference(ref: ImageAttachmentRef | VideoAttachmentRef): string {
   const match = ID_PATTERN.exec(String(ref.attachmentId))
   if (match?.[1] === undefined) throw new AttachmentError('Attachment reference is invalid.', 'INVALID_ATTACHMENT_REF')
   return match[1]
@@ -292,5 +297,117 @@ export async function readImageFile(
     || metadata.width !== ref.width || metadata.height !== ref.height) {
     throw new AttachmentError('Stored attachment metadata does not match its reference.', 'ATTACHMENT_CORRUPT')
   }
+  return { ref, data }
+}
+
+/**
+ * Run local size and container admission without touching storage.
+ * @param input - candidate video checked against the deployment limits.
+ * @param limits - deployment-resolved video limits for this store.
+ * @returns nothing; rejection names the violated limit.
+ */
+export async function validateVideoFile(input: SaveVideoAttachment, limits: VideoAttachmentLimits): Promise<void> {
+  if (input.data.byteLength > limits.maxVideoBytes) {
+    throw new AttachmentError('Video exceeds the configured byte limit.', 'VIDEO_TOO_LARGE')
+  }
+  detectVideo(input.data, input.mediaType)
+}
+
+/**
+ * Save one verified video as a content-addressed object.
+ * @param root - durable attachment home receiving the object and ref rows.
+ * @param input - candidate video admitted before any byte is written.
+ * @param limits - deployment-resolved video limits for this store.
+ * @returns the committed durable reference.
+ */
+export async function saveVideoFile(
+  root: string,
+  input: SaveVideoAttachment,
+  limits: VideoAttachmentLimits,
+): Promise<VideoAttachmentRef> {
+  await validateVideoFile(input, limits)
+  const sha256 = digest(input.data)
+  const bucket = join(root, 'objects', sha256.slice(0, 2))
+  const staging = join(root, 'tmp')
+  const boundary = await ensureDurableHome(dirname(dirname(resolve(root))))
+  await ensureDurableDirectory(bucket, boundary)
+  await ensureDurableDirectory(staging, boundary)
+  const temporary = join(staging, randomUUID())
+  const target = objectPath(root, sha256)
+  let handle
+  try {
+    handle = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600)
+    await handle.writeFile(input.data)
+    await handle.sync()
+    await handle.close()
+    handle = undefined
+    try {
+      await link(temporary, target)
+    } catch (error) {
+      /* v8 ignore next -- Private same-filesystem directories make EEXIST the only recoverable link race. */
+      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
+      const existing = new Uint8Array(await readFile(target))
+      if (digest(existing) !== sha256) throw new AttachmentError('Stored attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
+    }
+    await syncDirectory(bucket)
+    await syncDirectory(join(root, 'objects'))
+    await unlink(temporary)
+  } catch (error) {
+    /* v8 ignore next -- A descriptor can remain open only when the underlying write/sync/close operation fails. */
+    if (handle !== undefined) await handle.close().catch(
+      /* v8 ignore next -- Close failure is superseded by the storage operation that entered cleanup. */
+      () => {},
+    )
+    await unlink(temporary).catch(
+      /* v8 ignore next -- The callback requires a second independent staging-unlink failure. */
+      (cleanupError: unknown) => {
+        /* v8 ignore next -- Cleanup is best-effort only for a staging file already removed by a failed operation. */
+        if (!(cleanupError instanceof Error && 'code' in cleanupError && cleanupError.code === 'ENOENT')) throw cleanupError
+      },
+    )
+    if (error instanceof AttachmentError) throw error
+    throw new AttachmentError('Unable to persist video attachment.', 'ATTACHMENT_WRITE_FAILED', { cause: error })
+  }
+  const name = displayName(input.name)
+  return {
+    attachmentId: AttachmentId('sha256:' + sha256),
+    mediaType: input.mediaType,
+    bytes: input.data.byteLength,
+    ...(name !== undefined ? { name } : {}),
+  }
+}
+
+/**
+ * Read one content-addressed video and verify its container header.
+ * @param root - durable attachment home holding the object.
+ * @param ref - durable reference whose digest selects the object.
+ * @param signal - optional cancellation before the read starts.
+ * @returns the stored bytes with their verified metadata.
+ */
+export async function readVideoFile(
+  root: string,
+  ref: VideoAttachmentRef,
+  signal?: AbortSignal,
+): Promise<StoredVideoAttachment> {
+  signal?.throwIfAborted()
+  const sha256 = ensureReference(ref)
+  let data: Uint8Array
+  try {
+    data = new Uint8Array(await readFile(objectPath(root, sha256), { signal }))
+  } catch (error) {
+    signal?.throwIfAborted()
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') throw new AttachmentError('Attachment object is missing.', 'ATTACHMENT_NOT_FOUND')
+    throw new AttachmentError('Unable to read video attachment.', 'ATTACHMENT_READ_FAILED', { cause: error })
+  }
+  signal?.throwIfAborted()
+  if (digest(data) !== sha256) throw new AttachmentError('Stored attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
+  if (data.byteLength !== ref.bytes) throw new AttachmentError('Stored attachment metadata does not match its reference.', 'ATTACHMENT_CORRUPT')
+  try {
+    detectVideo(data, ref.mediaType)
+  } catch (error) {
+    if (error instanceof AttachmentError) throw new AttachmentError('Stored attachment metadata does not match its reference.', 'ATTACHMENT_CORRUPT', { cause: error })
+    throw error
+  }
+  signal?.throwIfAborted()
   return { ref, data }
 }

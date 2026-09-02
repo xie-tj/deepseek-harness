@@ -11,17 +11,24 @@ import type {
   RequestImageAttachment,
   SaveImageAttachment,
   StoredImageAttachment,
+  SaveVideoAttachment,
+  StoredVideoAttachment,
+  VideoAttachmentLimits,
+  VideoAttachmentRef,
 } from '@deepseek-ai/dsh-attachment'
 import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import type { NormalizationPolicy } from './normalization.ts'
 import { CompressionLimiter } from './compression-limiter.ts'
 import { commitPreparedImageFile, prepareImageFile, readImageFile, validateImageFile } from './store.ts'
+import { readVideoFile, saveVideoFile, validateVideoFile } from './store.ts'
 import { readRequestImageFile, requestImageVariantId } from './request-image.ts'
 
 export { canPassThroughNormalization, normalizeImage } from './normalization.ts'
 export type { NormalizedImage, NormalizationPolicy } from './normalization.ts'
 export { commitPreparedImageFile, prepareImageFile, readImageFile, saveImageFile, validateImageFile } from './store.ts'
+export { readVideoFile, saveVideoFile, validateVideoFile } from './store.ts'
 export type { PreparedImageFile } from './store.ts'
+export { detectVideo } from './video.ts'
 export { readRequestImageFile, requestImageDimensions, requestImageVariantId } from './request-image.ts'
 
 /** Default maximum encoded bytes for one submitted image; oversized sources are refused, not shrunk. */
@@ -46,6 +53,12 @@ export const DEFAULT_NORMALIZED_IMAGE_MAX_BYTES = 4 * 1024 * 1024
 export const DEFAULT_IMAGE_COMPRESSION_CONCURRENCY = 2
 /** Maximum configurable native image transformations per store. */
 export const MAX_IMAGE_COMPRESSION_CONCURRENCY = 8
+/** Default maximum encoded bytes for one video. */
+export const DEFAULT_MAX_VIDEO_BYTES = 100 * 1024 * 1024
+/** Default maximum videos in one prompt. */
+export const DEFAULT_MAX_VIDEOS_PER_MESSAGE = 4
+/** Default maximum aggregate video bytes in one prompt. */
+export const DEFAULT_MAX_MESSAGE_VIDEO_BYTES = 400 * 1024 * 1024
 
 /** Local attachment backend configuration. */
 export interface Config {
@@ -67,6 +80,12 @@ export interface Config {
   normalizedImageMaxBytes?: number
   /** Maximum simultaneous normalization or request-image transformations in this service instance. */
   imageCompressionConcurrency?: number
+  /** Maximum encoded bytes accepted for one video. Default: 100 MiB. */
+  maxVideoBytes?: number
+  /** Maximum video count accepted in one submitted message. Default: 4. */
+  maxVideosPerMessage?: number
+  /** Maximum aggregate encoded video bytes accepted in one submitted message. Default: 400 MiB. */
+  maxMessageVideoBytes?: number
 }
 
 function abortReason(signal: AbortSignal): Error {
@@ -143,11 +162,15 @@ export class LocalAttachmentStore extends AttachmentStore {
     normalizedImageMaxBytes: z.number().step(1).min(1).default(DEFAULT_NORMALIZED_IMAGE_MAX_BYTES),
     imageCompressionConcurrency: z.number().step(1).min(1).max(MAX_IMAGE_COMPRESSION_CONCURRENCY)
       .default(DEFAULT_IMAGE_COMPRESSION_CONCURRENCY),
+    maxVideoBytes: z.number().step(1).min(1).default(DEFAULT_MAX_VIDEO_BYTES),
+    maxVideosPerMessage: z.number().step(1).min(1).default(DEFAULT_MAX_VIDEOS_PER_MESSAGE),
+    maxMessageVideoBytes: z.number().step(1).min(1).default(DEFAULT_MAX_MESSAGE_VIDEO_BYTES),
   })
 
   /** Absolute versioned storage root. */
   readonly root: string
-  readonly imageLimits: ImageAttachmentLimits
+  override readonly imageLimits: ImageAttachmentLimits
+  override readonly videoLimits: VideoAttachmentLimits
   /** Resolved provider-independent normalization policy. */
   readonly normalizationPolicy: Readonly<NormalizationPolicy>
   /** Resolved instance-level compression limit. */
@@ -165,6 +188,12 @@ export class LocalAttachmentStore extends AttachmentStore {
       maxImagePixels: config.maxImagePixels ?? DEFAULT_MAX_IMAGE_PIXELS,
       maxImageDimension: config.maxImageDimension ?? DEFAULT_MAX_IMAGE_DIMENSION,
       mediaTypes: Object.freeze(['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const),
+    })
+    this.videoLimits = Object.freeze({
+      maxVideoBytes: config.maxVideoBytes ?? DEFAULT_MAX_VIDEO_BYTES,
+      maxVideosPerMessage: config.maxVideosPerMessage ?? DEFAULT_MAX_VIDEOS_PER_MESSAGE,
+      maxMessageVideoBytes: config.maxMessageVideoBytes ?? DEFAULT_MAX_MESSAGE_VIDEO_BYTES,
+      mediaTypes: Object.freeze(['video/mp4', 'video/webm', 'video/quicktime'] as const),
     })
     this.normalizationPolicy = Object.freeze({
       maxDimension: config.normalizedImageMaxDimension ?? DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION,
@@ -203,7 +232,7 @@ export class LocalAttachmentStore extends AttachmentStore {
     return commitPreparedImageFile(this.root, prepared)
   }
 
-  async readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment> {
+  override async readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment> {
     return readImageFile(this.root, ref, signal)
   }
 
@@ -245,6 +274,17 @@ export class LocalAttachmentStore extends AttachmentStore {
     return operation.wait(signal)
   }
 
+  override async validateVideo(input: SaveVideoAttachment): Promise<void> {
+    await validateVideoFile(input, this.videoLimits)
+  }
+
+  override async saveVideo(input: SaveVideoAttachment): Promise<VideoAttachmentRef> {
+    return saveVideoFile(this.root, input, this.videoLimits)
+  }
+
+  override async readVideo(ref: VideoAttachmentRef, signal?: AbortSignal): Promise<StoredVideoAttachment> {
+    return readVideoFile(this.root, ref, signal)
+  }
 }
 
 export default LocalAttachmentStore
