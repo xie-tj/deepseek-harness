@@ -465,6 +465,8 @@ describe('provider profile lifecycle', () => {
       inputModalities: ['text', 'image'],
     })
     expect(models.every(model => model.provider === 'openai')).toBe(true)
+    expect(models.find(model => model.id === 'gpt-5.6-sol')?.inputModalities).toContain('video')
+    expect(models.find(model => model.id === 'gpt-4.1')?.inputModalities).not.toContain('video')
     const info = await ctx.llm.resolveModelInfo('openai', 'gpt-4.1')
     expect(typeof info.context?.contextWindow).toBe('number')
   })
