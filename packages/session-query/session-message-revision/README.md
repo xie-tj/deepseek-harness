@@ -23,7 +23,7 @@ The standard Web composition includes this row, while a profile may omit it to r
 
 ## Install
 
-The standard Web profile includes this package in DSH `0.1.1-rc.3` and later. Upgrade DSH and restart Web; do not add `github:xie-tj/dsh-easy-exit` to that profile because it duplicates the built-in row.
+Upgrade to a DSH release that includes this package and restart Web; do not add `github:xie-tj/dsh-easy-exit` to that profile because it duplicates the built-in row.
 
 A custom profile may omit the composition row above to disable the action.
 

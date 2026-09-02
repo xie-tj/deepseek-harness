@@ -23,7 +23,7 @@
 
 ## 安装
 
-DSH `0.1.1-rc.3` 及更高版本的标准 Web Profile 已包含此包。升级 DSH 后重启 Web；不要在该 Profile 中添加 `github:xie-tj/dsh-easy-exit`，否则会重复挂载内置行。
+升级到包含此包的 DSH 发行版后重启 Web；不要在该 Profile 中添加 `github:xie-tj/dsh-easy-exit`，否则会重复挂载内置行。
 
 自定义 Profile 可以省略上文组合配置中的行来禁用该操作。
 
