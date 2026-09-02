@@ -23,13 +23,9 @@
 
 ## 安装
 
-将独立 Bundle 安装到 Profile：
+DSH `0.1.1-rc.3` 及更高版本的标准 Web Profile 已包含此包。升级 DSH 后重启 Web；不要在该 Profile 中添加 `github:xie-tj/dsh-easy-exit`，否则会重复挂载内置行。
 
-```sh
-dsh plugin --profile demo add github:xie-tj/dsh-easy-exit
-```
-
-本地开发时，将 GitHub 引用替换为本地目录路径。修改 Profile 组合后重启 Web 进程。
+自定义 Profile 可以省略上文组合配置中的行来禁用该操作。
 
 ## 开发
 

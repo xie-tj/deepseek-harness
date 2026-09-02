@@ -23,13 +23,9 @@ The standard Web composition includes this row, while a profile may omit it to r
 
 ## Install
 
-Install the standalone bundle into a profile:
+The standard Web profile includes this package in DSH `0.1.1-rc.3` and later. Upgrade DSH and restart Web; do not add `github:xie-tj/dsh-easy-exit` to that profile because it duplicates the built-in row.
 
-```sh
-dsh plugin --profile demo add github:xie-tj/dsh-easy-exit
-```
-
-For a local checkout, replace the GitHub reference with its directory path. Restart the Web process after changing the profile composition.
+A custom profile may omit the composition row above to disable the action.
 
 ## Development
 
