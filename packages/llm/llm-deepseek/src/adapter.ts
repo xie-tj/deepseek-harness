@@ -39,6 +39,9 @@ import { parseSse } from './sse.ts'
 import { translate } from './translate.ts'
 import type { WireError, WireRequest } from './types.ts'
 
+/** Input modalities the direct-fetch DeepSeek adapter can serialize. */
+export type DeepSeekInputModality = Exclude<ModelModality, 'video'>
+
 /** One optional model entry advertised by the direct-fetch adapter. */
 export interface DeepSeekCatalogModel {
   /** Wire model id accepted by the configured endpoint. */
@@ -52,7 +55,7 @@ export interface DeepSeekCatalogModel {
   /** Per-request output cap for this model; omission falls back to the profile's {@link DeepSeekConnectionOptions.maxTokens}. */
   maxTokens?: number
   /** Accepted request modalities; omission is text-only. */
-  inputModalities?: ModelModality[]
+  inputModalities?: DeepSeekInputModality[]
   /** Total-pixel budget for one deterministic request preview. */
   imagePixelBudget?: number
   /** Encoded-byte cap for one deterministic request preview. */
