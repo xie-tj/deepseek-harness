@@ -199,6 +199,42 @@ describe('Web session model selection', () => {
     await ctx.fiber.dispose()
   })
 
+  it('admits a canonical video prompt into the queued user message', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    const saveVideos = vi.fn(() => Promise.resolve([{
+      attachmentId: 'att-video-prompt', mediaType: 'video/mp4' as const, bytes: 16, name: 'clip.mp4',
+    }]))
+    ctx.provide('attachments', Object.setPrototypeOf({
+      imageLimits: { maxMessageImageBytes: 1 },
+      videoLimits: { maxMessageVideoBytes: 64 },
+      saveVideos,
+    }, AttachmentStore.prototype) as never)
+    const followup = vi.fn()
+    Object.assign(agent, { followup })
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+
+    const result = await api.sessions.prompt(request({
+      sessionId,
+      mode: 'queue' as const,
+      content: [{ type: 'video' as const, mediaType: 'video/mp4' as const, data: 'AAAAEGZ0eXBtcDQyAAAAAA==', name: 'clip.mp4' }],
+    }))
+
+    expect(result.result.ok).toBe(true)
+    expect(saveVideos).toHaveBeenCalledWith([{
+      data: Uint8Array.from([0, 0, 0, 16, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32, 0, 0, 0, 0]),
+      mediaType: 'video/mp4',
+      name: 'clip.mp4',
+    }])
+    expect((followup.mock.calls[0]?.[0] as UserMessage).content).toEqual([{
+      type: 'video',
+      attachment: { attachmentId: 'att-video-prompt', mediaType: 'video/mp4', bytes: 16, name: 'clip.mp4' },
+    }])
+    await ctx.fiber.dispose()
+  })
+
   it('allows a text-only selection while durable or pending images remain available for later models', async () => {
     const { ctx, agent, sessionId } = await harness()
     registerTextOnly(ctx)
@@ -230,6 +266,31 @@ describe('Web session model selection', () => {
     expect(expectValue(await api.sessions.selectModel(request({
       sessionId, provider: 'text-only', model: 'plain',
     }))).selected).toEqual({ provider: 'text-only', model: 'plain' })
+    await ctx.fiber.dispose()
+  })
+
+  it('refuses a text-only selection while video history remains model-visible', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    registerTextOnly(ctx)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+    agent.session.append('user/message', {
+      id: 'video-message', role: 'user', source: { kind: 'user' },
+      content: [{ type: 'video', attachment: {
+        attachmentId: 'att-history-video', mediaType: 'video/mp4', bytes: 1,
+      } }],
+    } as never, { surfaceOp: 'append' })
+
+    await expect(api.sessions.selectModel(request({
+      sessionId, provider: 'text-only', model: 'plain',
+    }))).resolves.toMatchObject({
+      result: {
+        ok: false,
+        error: { code: 'model-unavailable' },
+      },
+    })
     await ctx.fiber.dispose()
   })
 
@@ -267,6 +328,35 @@ describe('Web session model selection', () => {
     expect(readImage).toHaveBeenCalledOnce()
     await ctx.fiber.dispose()
   })
+  it('authorizes referenced video bytes', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    const ref = {
+      attachmentId: 'att-video' as never, mediaType: 'video/mp4' as const, bytes: 2,
+    }
+    const readVideo = vi.fn(() => Promise.resolve({ ref, data: Uint8Array.of(3, 4) }))
+    ctx.provide('attachments', { readVideo } as never)
+    const api = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+    agent.session.append('agent/inbox/spliced', {
+      target: 'next-turn',
+      start: 0,
+      inserted: [{
+        id: 'queued-video', role: 'user', source: { kind: 'user' },
+        content: [{ type: 'video', attachment: ref }],
+      }],
+    } as never)
+
+    const allowed = await api.sessions.attachment(request({
+      sessionId, attachmentId: 'att-video' as never,
+    }))
+
+    expect(allowed.result).toMatchObject({ ok: true, value: { attachment: ref, data: 'AwQ=' } })
+    expect(readVideo).toHaveBeenCalledOnce()
+    await ctx.fiber.dispose()
+  })
+
   it('groups successful providers and leaves an unlisted current selection out of the catalog', async () => {
     const { ctx, sessionId } = await harness({
       provider: 'deepseek-official',
