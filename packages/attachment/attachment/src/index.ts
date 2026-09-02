@@ -9,11 +9,15 @@ import type {
   RequestImageAttachment,
   SaveImageAttachment,
   StoredImageAttachment,
+  SaveVideoAttachment,
+  StoredVideoAttachment,
+  VideoAttachmentLimits,
+  VideoAttachmentRef,
 } from './types.ts'
 
 export { AttachmentId, ImageVariantId } from './brand.ts'
-export { AttachmentError, isImageAdmissionError } from './error.ts'
-export type { AttachmentErrorCode, ImageAdmissionErrorCode } from './error.ts'
+export { AttachmentError, isImageAdmissionError, isVideoAdmissionError } from './error.ts'
+export type { AttachmentErrorCode, ImageAdmissionErrorCode, VideoAdmissionErrorCode } from './error.ts'
 export { admitEncodedImages } from './admission.ts'
 export type {
   AttachmentId as AttachmentIdType,
@@ -25,6 +29,11 @@ export type {
   RequestImageAttachment,
   SaveImageAttachment,
   StoredImageAttachment,
+  SaveVideoAttachment,
+  StoredVideoAttachment,
+  VideoAttachmentLimits,
+  VideoAttachmentRef,
+  VideoMediaType,
 } from './types.ts'
 
 declare module '@deepseek-ai/cordis' {
@@ -33,8 +42,18 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+const NO_VIDEO_LIMITS: VideoAttachmentLimits = Object.freeze({
+  maxVideoBytes: 0,
+  maxVideosPerMessage: 0,
+  maxMessageVideoBytes: 0,
+  mediaTypes: Object.freeze([]),
+})
+
 /** Immutable binary attachment service. Implementations validate bytes before publishing a reference. */
 export abstract class AttachmentStore extends Service {
+  /** Empty by default so image-only stores remain valid until they opt into video. */
+  readonly videoLimits: VideoAttachmentLimits = NO_VIDEO_LIMITS
+
   constructor(ctx: Context) {
     super(ctx, 'attachments')
   }
@@ -128,6 +147,62 @@ export abstract class AttachmentStore extends Service {
     ))
   }
 
+  /**
+   * Reject video when the concrete store has not opted into video persistence.
+   * @param _input - validated candidate ignored by the image-only default.
+   * @returns nothing; rejection is the unsupported-video signal.
+   */
+  async validateVideo(_input: SaveVideoAttachment): Promise<void> {
+    throw new AttachmentError('Video input is not supported by this attachment backend.', 'UNSUPPORTED_VIDEO_TYPE')
+  }
+
+  /**
+   * Validate one ordered video batch before committing any member.
+   * @param inputs - caller-ordered candidates checked against the configured video limits.
+   * @returns durable references in input order; no reference exists unless every member validates.
+   */
+  async saveVideos(inputs: readonly SaveVideoAttachment[]): Promise<readonly VideoAttachmentRef[]> {
+    const { maxVideosPerMessage, maxMessageVideoBytes, mediaTypes } = this.videoLimits
+    if (inputs.length > maxVideosPerMessage) {
+      throw new AttachmentError('Video batch exceeds the configured video-count limit.', 'TOO_MANY_VIDEOS')
+    }
+    const totalBytes = inputs.reduce((sum, input) => sum + input.data.byteLength, 0)
+    if (totalBytes > maxMessageVideoBytes) {
+      throw new AttachmentError('Video batch exceeds the configured aggregate video-byte limit.', 'VIDEOS_TOO_LARGE')
+    }
+    for (const input of inputs) {
+      if (!mediaTypes.includes(input.mediaType)) {
+        throw new AttachmentError(`Video type ${input.mediaType} is not accepted by this deployment.`, 'UNSUPPORTED_VIDEO_TYPE')
+      }
+      if (input.data.byteLength > this.videoLimits.maxVideoBytes) {
+        throw new AttachmentError('Video exceeds the configured byte limit.', 'VIDEO_TOO_LARGE')
+      }
+    }
+    for (const input of inputs) await this.validateVideo(input)
+
+    const refs: VideoAttachmentRef[] = []
+    for (const input of inputs) refs.push(await this.saveVideo(input))
+    return refs
+  }
+
+  /**
+   * Validate and durably commit one video; concrete stores opt in by overriding this method.
+   * @param _input - validated candidate ignored by the image-only default.
+   * @returns the committed durable reference.
+   */
+  async saveVideo(_input: SaveVideoAttachment): Promise<VideoAttachmentRef> {
+    throw new AttachmentError('Video input is not supported by this attachment backend.', 'UNSUPPORTED_VIDEO_TYPE')
+  }
+
+  /**
+   * Read one verified video; concrete stores opt in by overriding this method.
+   * @param _ref - durable reference ignored by the image-only default.
+   * @param _signal - optional cancellation ignored by the default.
+   * @returns the stored bytes with their verified metadata.
+   */
+  async readVideo(_ref: VideoAttachmentRef, _signal?: AbortSignal): Promise<StoredVideoAttachment> {
+    throw new AttachmentError('Video input is not supported by this attachment backend.', 'UNSUPPORTED_VIDEO_TYPE')
+  }
 }
 
 export default AttachmentStore

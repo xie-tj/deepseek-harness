@@ -200,3 +200,11 @@ export function offloadRequestImagesWithPolicy(
     return content === message.content ? message : { ...message, content }
   })
 }
+/** Detect whether any content block, including nested tool results, carries video input.
+ * @param content - blocks scanned recursively through tool results.
+ * @returns whether at least one video block is present.
+ */
+export function contentHasVideo(content: readonly ContentBlock[]): boolean {
+  return content.some(block => block.type === 'video'
+    || (block.type === 'tool-result' && contentHasVideo(block.content)))
+}

@@ -12,12 +12,24 @@ const IMAGE_ADMISSION_ERROR_CODES = [
   'IMAGE_DIMENSION_TOO_LARGE',
 ] as const
 
+const VIDEO_ADMISSION_ERROR_CODES = [
+  'TOO_MANY_VIDEOS',
+  'VIDEOS_TOO_LARGE',
+  'UNSUPPORTED_VIDEO_TYPE',
+  'INVALID_VIDEO_BASE64',
+  'VIDEO_TOO_LARGE',
+] as const
+
 /** Caller-correctable attachment failure codes raised while admitting image input. */
 export type ImageAdmissionErrorCode = typeof IMAGE_ADMISSION_ERROR_CODES[number]
+
+/** Caller-correctable attachment failure codes raised while admitting video input. */
+export type VideoAdmissionErrorCode = typeof VIDEO_ADMISSION_ERROR_CODES[number]
 
 /** Stable attachment failure codes used for protocol error routing. */
 export type AttachmentErrorCode =
   | ImageAdmissionErrorCode
+  | VideoAdmissionErrorCode
   | 'INVALID_ATTACHMENT_REF'
   | 'ATTACHMENT_CORRUPT'
   | 'ATTACHMENT_WRITE_FAILED'
@@ -27,6 +39,7 @@ export type AttachmentErrorCode =
 
 /** Runtime membership for structurally compatible errors crossing package boundaries. */
 const IMAGE_ADMISSION_ERROR_CODE_SET: ReadonlySet<string> = new Set(IMAGE_ADMISSION_ERROR_CODES)
+const VIDEO_ADMISSION_ERROR_CODE_SET: ReadonlySet<string> = new Set(VIDEO_ADMISSION_ERROR_CODES)
 
 /**
  * Stable failures suitable for host RPC error mapping.
@@ -65,4 +78,18 @@ export function isImageAdmissionError(
     && 'code' in error
     && typeof error.code === 'string'
     && IMAGE_ADMISSION_ERROR_CODE_SET.has(error.code)
+}
+
+/**
+ * Distinguish caller-correctable video admission failures from storage faults.
+ * @param error - failure raised while validating or persisting video input.
+ * @returns whether the caller can correct the proposed video content or batch.
+ */
+export function isVideoAdmissionError(
+  error: unknown,
+): error is AttachmentError & { readonly code: VideoAdmissionErrorCode } {
+  return error instanceof Error
+    && 'code' in error
+    && typeof error.code === 'string'
+    && VIDEO_ADMISSION_ERROR_CODE_SET.has(error.code)
 }

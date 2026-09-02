@@ -7,6 +7,9 @@ export type { AttachmentId } from './brand.ts'
 /** Raster image formats accepted by the version-one attachment path. */
 export type ImageMediaType = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
 
+/** Video formats accepted by the native GPT-5.6 input path. */
+export type VideoMediaType = 'video/mp4' | 'video/webm' | 'video/quicktime'
+
 /** Durable, serializable reference to one immutable normalized image. */
 export interface ImageAttachmentRef {
   /** Opaque storage identifier; never a filesystem path or bearer URL. */
@@ -50,6 +53,41 @@ export interface EncodedImageAttachment {
   data: string
   /** Optional display name; it is never interpreted as a path. */
   name?: string
+}
+
+/** Deployment-resolved limits for native video input. */
+export interface VideoAttachmentLimits {
+  maxVideoBytes: number
+  maxVideosPerMessage: number
+  maxMessageVideoBytes: number
+  mediaTypes: readonly VideoMediaType[]
+}
+
+/** Durable metadata for one immutable video object. */
+export interface VideoAttachmentRef {
+  /** Opaque storage identifier; never a filesystem path or bearer URL. */
+  attachmentId: AttachmentId
+  /** Media type verified at the upload boundary. */
+  mediaType: VideoMediaType
+  /** Exact encoded byte length. */
+  bytes: number
+  /** Optional display name stripped of local path information. */
+  name?: string
+}
+
+/** Request to validate and durably commit one video. */
+export interface SaveVideoAttachment {
+  data: Uint8Array
+  /** Caller-declared media type, checked at the storage boundary. */
+  mediaType: VideoMediaType
+  /** Optional browser/provider display name; never interpreted as a path. */
+  name?: string
+}
+
+/** Stored video bytes returned after reference and digest verification. */
+export interface StoredVideoAttachment {
+  ref: VideoAttachmentRef
+  data: Uint8Array
 }
 
 /** Request to validate and durably commit one image. */
