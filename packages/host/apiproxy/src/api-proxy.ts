@@ -91,7 +91,7 @@ import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-a
 // `ctx.get('approval')` without a value dependency on the seam (optional composition).
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { approvalResponsePayloadSchema } from './api/approvals.schema.ts'
-import { imageLimitsProjectionSchema, sessionListMetadataProjectionSchema } from './api/sessions.schema.ts'
+import { imageLimitsProjectionSchema, sessionListMetadataProjectionSchema, videoLimitsProjectionSchema } from './api/sessions.schema.ts'
 import { questionResponsePayloadSchema } from './api/questions.schema.ts'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from './api/rpc.ts'
 import { RpcId } from './api/rpc.ts'
@@ -1337,6 +1337,14 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       init: () => null,
       apply: state => state,
       wire: { viewSchema: imageLimitsProjectionSchema, view: () => projectionCtx.attachments.imageLimits },
+      stateVersion: 1,
+    })
+    projectionCtx.sessionProjections.register<'videoLimits', null>({
+      key: 'videoLimits',
+      stateSchema: zod.null(),
+      init: () => null,
+      apply: state => state,
+      wire: { viewSchema: videoLimitsProjectionSchema, view: () => projectionCtx.attachments.videoLimits },
       stateVersion: 1,
     })
   })
