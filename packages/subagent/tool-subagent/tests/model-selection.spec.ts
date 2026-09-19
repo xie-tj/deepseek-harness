@@ -49,18 +49,18 @@ describe('dsh-tool-subagent model selection', () => {
       .toThrow('requires non-empty provider and model ids')
   })
 
-  it('allows pure inheritance but rejects explicit values outside a Session allowlist', () => {
+  it('rejects every effective route outside a Session allowlist', () => {
     const policy = {
       routes: [{ provider: 'alpha', model: 'allowed-model' }],
     }
     const parent = { provider: 'alpha', model: 'parent-model' }
 
-    expect(() => { assertAllowedModelSelection(policy, parent, undefined, {}) }).not.toThrow()
+    expect(() => { assertAllowedModelSelection(policy, parent, undefined) })
+      .toThrow('alpha/parent-model')
     expect(() => {
       assertAllowedModelSelection(
         policy,
         parent,
-        { provider: 'alpha', model: 'allowed-model' },
         { provider: 'alpha', model: 'allowed-model' },
       )
     }).not.toThrow()
@@ -69,7 +69,6 @@ describe('dsh-tool-subagent model selection', () => {
         policy,
         parent,
         { provider: 'alpha', model: 'other-model' },
-        { provider: 'alpha', model: 'other-model' },
       )
     }).toThrow('is not allowed for this Session')
     expect(() => {
@@ -77,7 +76,6 @@ describe('dsh-tool-subagent model selection', () => {
         policy,
         parent,
         { reasoningEffort: ReasoningEffortId('low') },
-        { reasoning_effort: 'low' },
       )
     }).toThrow('alpha/parent-model')
     expect(() => {
@@ -85,12 +83,11 @@ describe('dsh-tool-subagent model selection', () => {
         policy,
         {},
         { reasoningEffort: ReasoningEffortId('low') },
-        { reasoning_effort: 'low' },
       )
     }).toThrow('without an effective provider and model')
   })
 
-  it('leaves deployment or parent defaults outside the allowlist usable when the call selects nothing', async () => {
+  it('rejects deployment or parent defaults outside the allowlist when the call selects nothing', async () => {
     let starts = 0
     const ctx = await setup(
       { provider: 'mock', withModelSelection: true },
@@ -104,9 +101,64 @@ describe('dsh-tool-subagent model selection', () => {
 
     const result = await callSubagent(ctx, { description: 'default route', prompt: 'do it' })
 
-    expect(result.isError).toBe(false)
-    expect(starts).toBe(1)
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('deployment-provider/deployment-model')
+    expect(text(result)).toContain('is not allowed for this Session')
+    expect(starts).toBe(0)
   })
+
+  it('rejects configured defaults outside the allowlist when the call selects nothing', async () => {
+    let starts = 0
+    const ctx = await setup({
+      provider: 'mock',
+      withModelSelection: true,
+      agentOptions: { provider: 'beta', model: 'configured-model' },
+    }, { onStart: () => { starts += 1 } })
+    ctx.llm.registerAdapter(['beta'], new MockAdapter([]))
+
+    const result = await callSubagent(ctx, { description: 'configured route', prompt: 'do it' })
+
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('beta/configured-model')
+    expect(text(result)).toContain('is not allowed for this Session')
+    expect(starts).toBe(0)
+  })
+
+  it('resolves provider defaults before enforcing the allowlist', async () => {
+    let seen: SubagentStartRequest | undefined
+    const ctx = await setup(
+      { provider: 'mock', withModelSelection: true },
+      {
+        agentRouteDefaults: { provider: 'alpha', model: 'child-model' },
+        onStart: (request) => { seen = request },
+      },
+    )
+    ctx.llm.registerAdapter(['alpha'], new MockAdapter([]))
+
+    const result = await callSubagent(ctx, { description: 'provider default', prompt: 'do it' })
+
+    expect(result.isError).toBe(false)
+    expect(seen?.agentOptions).toEqual({ provider: 'alpha', model: 'child-model' })
+  })
+
+  it('rejects provider defaults outside the allowlist when the call selects nothing', async () => {
+    let starts = 0
+    const ctx = await setup(
+      { provider: 'mock', withModelSelection: true },
+      {
+        agentRouteDefaults: { provider: 'beta', model: 'blocked-model' },
+        onStart: () => { starts += 1 },
+      },
+    )
+
+    const result = await callSubagent(ctx, { description: 'provider default', prompt: 'do it' })
+
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain('beta/blocked-model')
+    expect(text(result)).toContain('is not allowed for this Session')
+    expect(starts).toBe(0)
+  })
+
   it('exposes Session-authorized route fields and discovery when selection is enabled', async () => {
     const ctx = await setup({ provider: 'mock', withModelSelection: true })
     const agent = modelSelectionSetupAgent(ctx)

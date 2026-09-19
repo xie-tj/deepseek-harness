@@ -9,13 +9,13 @@ import { assertAllowedModelRoutes, type AllowedModelRoute } from './model-select
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
-     * Records that this session's delegation tool exposes child provider,
-     * model, and reasoning-effort selection. Appended before the first model
-     * request; absence means the fixed-route definition. Log-only: it carries
-     * no `surfaceOp` and never enters model history.
+     * Records exact child provider/model authorization for a delegation tool
+     * that exposes model and reasoning-effort selection. Appended before the
+     * first model request; absence means the fixed-route definition. Log-only:
+     * it carries no `surfaceOp` and never enters model history.
      */
     'subagent/model-selection-policy': {
-      /** Exact routes this Session may select explicitly for a child. */
+      /** Exact routes this Session may use for a child. */
       allowedModels: AllowedModelRoute[]
     }
   }
@@ -23,7 +23,7 @@ declare module '@deepseek-ai/dsh-session/types' {
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
-    /** Exact routes authorized for child LLM selection, or null when disabled. */
+    /** Exact routes authorized for child LLM use, or null when disabled. */
     subagentModelSelectionPolicy: AllowedModelRoute[] | null
   }
 }
@@ -67,7 +67,7 @@ export function subagentModelSelectionPolicy(
  * Append the route policy once, before its definition can reach a model request.
  * @param projections - registry that owns the policy projection.
  * @param session - session receiving the model-selectable definition.
- * @param allowedModels - exact routes the definition may select explicitly.
+ * @param allowedModels - exact routes the definition may use.
  */
 export function recordSubagentModelSelection(
   projections: Pick<SessionProjectionRegistry, 'stateOf'>,

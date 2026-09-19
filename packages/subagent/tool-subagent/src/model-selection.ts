@@ -21,7 +21,7 @@ export const AllowedModelRouteSchema: z<AllowedModelRoute> = z.object({
 
 /** Route-selection authority captured by one delegation definition. */
 export interface ModelSelectionPolicy {
-  /** Exact provider/model routes authorized for explicit selection. */
+  /** Exact provider/model routes authorized for child use. */
   readonly routes: readonly AllowedModelRoute[]
 }
 
@@ -129,20 +129,18 @@ export function requestedAgentOptions(
 
 /**
  * Enforce a settings-owned route list at the operation that creates the child.
- * Pure inheritance remains outside this policy because no model-facing choice
- * occurred; any explicit route or effort field must resolve to an allowed route.
+ * Every effective route, including configured, provider-owned, and inherited
+ * defaults, must appear in the Session policy.
  * @param policy - Selection authority captured for this Session.
  * @param parentOptions - Current parent values that supply missing child values.
  * @param requested - Effective child options after request/config merging.
- * @param request - Model-facing selection fields from the tool call.
  */
 export function assertAllowedModelSelection(
   policy: ModelSelectionPolicy | undefined,
   parentOptions: AgentOptions,
   requested: AgentOptions | undefined,
-  request: DelegationModelRequest,
 ): void {
-  if (policy === undefined || !hasDelegationModelRequest(request)) return
+  if (policy === undefined) return
   const provider = requested?.provider ?? parentOptions.provider
   const model = requested?.model ?? parentOptions.model
   if (provider === undefined || model === undefined) {

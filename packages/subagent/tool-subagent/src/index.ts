@@ -478,7 +478,8 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
 
           const modelRequest = args as DelegationModelRequest
           const parentOptions = parentAgentOptionsForDelegation(parent)
-          const requiresRoutePreflight = hasDelegationModelRequest(modelRequest)
+          const requiresRoutePreflight = modelSelectionPolicy !== undefined
+            || hasDelegationModelRequest(modelRequest)
             || hasConfiguredLlmSelection(config.agentOptions)
           const configuredChildAgentOptions = requiresRoutePreflight && providerRouteDefaults !== undefined
             ? { ...providerRouteDefaults, ...config.agentOptions }
@@ -493,7 +494,6 @@ export function apply(ctx: Context, config: Config, session?: Session): void {
             modelSelectionPolicy,
             parentOptions,
             requestedChildAgentOptions,
-            modelRequest,
           )
           if (requiresRoutePreflight) {
             const llm = runtimeCtx.get('llm')
